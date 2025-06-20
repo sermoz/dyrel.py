@@ -1,4 +1,4 @@
-# What is DyRel.py?
+# What is DyRel?
 
 DyRel is a live environment for relational programming in Python. Its key features are:
 

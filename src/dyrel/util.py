@@ -1,8 +1,8 @@
-class Stub:
-    __slots__ = "printed_name"
+from dataclasses import dataclass
 
-    def __init__(self, printed_name):
-        self.printed_name = printed_name
+@dataclass(slots=True, eq=False, repr=False)
+class Stub:
+    printed_name: str
 
     def __repr__(self):
         return f"#<{self.printed_name}>"

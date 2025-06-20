@@ -1,3 +1,6 @@
+from typing import Any
+
+from dataclasses import dataclass, field
 from cached_property import cached_property
 
 from .util import NO_VALUE, get_attr_plain
@@ -45,25 +48,17 @@ class Datum:
         return "".join(pieces)
 
 
+@dataclass(slots=True, frozen=True)
 class Segment:
-    __slots__ = "name", "value"
-
-    def __init__(self, name, value=NO_VALUE):
-        self.name = name
-        self.value = value
+    name: str
+    value: Any = NO_VALUE
 
     @property
     def is_open(self):
         return self.value is NO_VALUE
 
     def value_set_to(self, value):
-        return Segment(self.name, value)
-
-    def __repr__(self):
-        if self.value is NO_VALUE:
-            return f"Segment({self.name})"
-        else:
-            return f"Segment({self.name}, {repr(self.value)})"
+        return Segment(name=self.name, value=value)
 
 
 R_OBJECT = Relation_Root()
