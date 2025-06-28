@@ -7,9 +7,7 @@ authors = [
     { name = "Serhii Mozghovyi", email = "egnartsms@gmail.com" }
 ]
 requires-python = ">=3.13"
-dependencies = [
-    "cached-property>=2.0.1",
-]
+dependencies = []
 
 [build-system]
 requires = ["hatchling"]
@@ -19,3 +17,25 @@ build-backend = "hatchling.build"
 dev = [
     "ipython>=9.3.0",
 ]
+
+[tool.ruff]
+line-length = 90
+indent-width = 4
+target-version = "py313"
+
+[tool.ruff.lint]
+isort.combine-as-imports = true
+ignore = [
+  "SIM108",  # Prefer if-else instead of ternary for readability.
+]
+select = [
+  "F",    # Pyflakes; likely errors: https://docs.astral.sh/ruff/rules/#pyflakes-f
+  # "PL",      # Pylint: https://docs.astral.sh/ruff/rules/#pylint-pl
+  "I",    # Sort imports: https://docs.astral.sh/ruff/rules/#isort-i
+  "SIM",  # Simplify code: https://docs.astral.sh/ruff/rules/#flake8-simplify-sim
+  "TC",   # Organize type-checking imports: https://docs.astral.sh/ruff/rules/#flake8-type-checking-tc
+  "UP",   # Upgrade to modern Python syntax: https://docs.astral.sh/ruff/rules/#pyupgrade-up
+]
+
+[tool.ruff.format]
+quote-style = "double"
