@@ -1,12 +1,20 @@
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any, Optional
 
-from dyrel.util import NO_VALUE
+from dyrel.signature import get_signature
+from dyrel.util import NO_VALUE, Slotted_Class
+
+if TYPE_CHECKING:
+    from dyrel.signature import Signature
 
 
-class Datum:
+class Datum(metaclass=Slotted_Class):
+    _chain: tuple["Segment", ...]
+    _sig: Optional["Signature"]
+
     def __init__(self, chain):
         self._chain = chain
+        self._sig = None
 
     def __getattr__(self, name):
         return Datum((*self._chain, Segment(name)))
@@ -21,6 +29,16 @@ class Datum:
 
     def __repr__(self):
         return f"<datum: {self._signature}>"
+
+    def _as_record(self):
+        return tuple(seg.value for seg in self._chain if seg.is_bearing)
+
+    @property
+    def _signature(self) -> "Signature":
+        if self._sig is None:
+            self._sig = get_signature((seg.name, seg.is_bearing) for seg in self._chain)
+
+        return self._sig
 
 
 @dataclass(frozen=True, slots=True)

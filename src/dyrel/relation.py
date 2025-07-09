@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING
 
 from dyrel.datum import Datum, Segment
+from dyrel.projection import Projection
 
 if TYPE_CHECKING:
     from dyrel.signature import Signature
@@ -16,23 +17,34 @@ r_object = Relation_Root()
 relation_registry: dict["Signature", "Relation"] = {}
 
 
+def get_relation(signature):
+    try:
+        relation = relation_registry[signature]
+    except KeyError:
+        relation = relation_registry[signature] = Relation(signature)
+
+    return relation
+
+
 class Relation:
     def __init__(self, signature):
         self.signature = signature
-        self.facts = []
-        self.projections = []
+        self.facts = set()  # clauses without bodies
+        self.projections = {}
 
-    def add_fact(self, fact: Datum):
-        self.facts.append(fact)
+    def add_fact(self, record):
+        self.facts.add(record)
 
+        for proj in self.projections.values():
+            proj.consider_adding(record)
 
-def declare(fact):
-    if not fact._is_ground:
-        raise RuntimeError("Can only declare facts!")
+    def get_projection(self, coords):
+        try:
+            proj = self.projections[coords]
+        except KeyError:
+            proj = self.projections[coords] = Projection(self, coords)
 
-    try:
-        relation = relation_registry[fact._signature]
-    except KeyError:
-        relation = relation_registry[fact._signature] = Relation(fact._signature)
+            for fact in self.facts:
+                proj.consider_adding(fact)
 
-    relation.add_fact(fact)
+        return proj

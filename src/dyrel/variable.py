@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from dyrel.datum import Datum
-from dyrel.util import cached_property, member_of
+from dyrel.util import member_of
 
 var_table = {}
 
@@ -23,7 +23,6 @@ class Variable:
 
 
 @member_of(Datum)
-@cached_property
 def _is_ground(self):
     """Does the datum not contain any variables?"""
     return not any(isinstance(seg.value, Variable) for seg in self._chain)

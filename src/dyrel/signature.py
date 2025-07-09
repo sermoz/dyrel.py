@@ -2,8 +2,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from weakref import WeakValueDictionary
 
-from dyrel.datum import Datum
-from dyrel.util import cached_property, member_of, tuplify
+from dyrel.util import tuplify
 
 signature_registry = WeakValueDictionary()
 
@@ -20,32 +19,8 @@ def get_signature(keys: Iterable[tuple[str, bool]]) -> "Signature":
     return signature
 
 
-@dataclass(eq=False, frozen=True, slots=True, weakref_slot=True)
-class Signature:
-    """Relation signature: ordered keys, including non-bearing (non-arg) ones used only for namespacing"""
-
-    keys: tuple[tuple[str, bool], ...]
-    code: str
-    bearing_keys: tuple[str] = field(init=False)
-
-    def __post_init__(self):
-        object.__setattr__(
-            self,
-            "bearing_keys",
-            tuple(key for key, is_bearing in self.keys if is_bearing),
-        )
-
-    @property
-    def dim(self):
-        return len(self.bearing_keys)
-
-    def __repr__(self):
-        return f"#{self.code}"
-
-
 def signature_code(keys: Iterable[tuple[str, bool]]) -> str:
     """Compute the signature code by the signature keys"""
-
     def parts():
         pending_dot = False
 
@@ -64,7 +39,24 @@ def signature_code(keys: Iterable[tuple[str, bool]]) -> str:
     return "".join(parts())
 
 
-@member_of(Datum)
-@cached_property
-def _signature(self):
-    return get_signature((seg.name, seg.is_bearing) for seg in self._chain)
+@dataclass(eq=False, frozen=True, slots=True, weakref_slot=True)
+class Signature:
+    """Relation signature: ordered keys, including non-bearing ones (for namespacing)"""
+
+    keys: tuple[tuple[str, bool], ...]
+    code: str
+    bearing_keys: tuple[str] = field(init=False)
+
+    def __post_init__(self):
+        object.__setattr__(
+            self,
+            "bearing_keys",
+            tuple(key for key, is_bearing in self.keys if is_bearing),
+        )
+
+    @property
+    def dim(self):
+        return len(self.bearing_keys)
+
+    def __repr__(self):
+        return f"#{self.code}"

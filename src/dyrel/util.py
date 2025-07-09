@@ -7,7 +7,7 @@ class Stub:
     printed_name: str
 
     def __repr__(self):
-        return f"#<{self.printed_name}>"
+        return f"<stub: {self.printed_name}>"
 
 
 NO_VALUE = Stub("NO_VALUE")
@@ -96,3 +96,8 @@ class Slotted_Class(type):
 
 def tuplify(thing: Iterable) -> tuple:
     return thing if isinstance(thing, tuple) else tuple(thing)
+
+
+def init_with_kwargs(self, **kwargs):
+    for key, val in kwargs.items():
+        setattr(self, key, val)
