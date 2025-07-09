@@ -21,6 +21,7 @@ def get_signature(keys: Iterable[tuple[str, bool]]) -> "Signature":
 
 def signature_code(keys: Iterable[tuple[str, bool]]) -> str:
     """Compute the signature code by the signature keys"""
+
     def parts():
         pending_dot = False
 

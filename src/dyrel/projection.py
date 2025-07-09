@@ -1,12 +1,11 @@
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
 from dyrel.datum import Datum
 from dyrel.engine import processing_queue
-from dyrel.util import Slotted_Class, Stub, member_of, init_with_kwargs
-from dyrel.variable import Variable
 from dyrel.snapshot import Snapshot
+from dyrel.util import Slotted_Class, Stub, init_with_kwargs, member_of
+from dyrel.variable import Variable
 
 if TYPE_CHECKING:
     from dyrel.relation import Relation
