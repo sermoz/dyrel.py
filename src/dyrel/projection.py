@@ -17,9 +17,8 @@ WILDCARD = Stub("*")
 @member_of(Datum)
 def _as_projection_coords(self):
     return tuple(
-        WILDCARD if isinstance(seg.value, Variable) else seg.value
-        for seg in self._chain
-        if seg.is_bearing
+        WILDCARD if isinstance(value, Variable) else value
+        for value in self._values()
     )
 
 

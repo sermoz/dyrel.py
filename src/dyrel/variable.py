@@ -25,4 +25,4 @@ class Variable:
 @member_of(Datum)
 def _is_ground(self):
     """Does the datum not contain any variables?"""
-    return not any(isinstance(seg.value, Variable) for seg in self._chain)
+    return not any(isinstance(value, Variable) for value in self._values())

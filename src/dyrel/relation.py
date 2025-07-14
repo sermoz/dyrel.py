@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from dyrel.datum import Datum, Segment
+from dyrel.datum import Datum, Namespacing_Segment
 from dyrel.projection import Projection
 
 if TYPE_CHECKING:
@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 class Relation_Root:
     def __getattr__(self, name):
-        return Datum((Segment(name),))
+        return Datum((Namespacing_Segment(name),))
 
 
 r_object = Relation_Root()
@@ -38,7 +38,7 @@ class Relation:
         for proj in self.projections.values():
             proj.consider_adding(record)
 
-    def get_projection(self, coords):
+    def get_projection(self, coords: tuple):
         try:
             proj = self.projections[coords]
         except KeyError:
