@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from dyrel.datum import Datum, Namespacing_Segment
+from dyrel.datum import Datum, Open_Segment
 from dyrel.projection import Projection
 
 if TYPE_CHECKING:
@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 class Relation_Root:
     def __getattr__(self, name):
-        return Datum((Namespacing_Segment(name),))
+        return Datum((Open_Segment(name),))
 
 
 r_object = Relation_Root()

@@ -1,7 +1,6 @@
 from typing import TYPE_CHECKING
 
 from dyrel.relation import get_relation
-from dyrel.variable import Variable
 
 if TYPE_CHECKING:
     from dyrel.datum import Datum
@@ -22,7 +21,7 @@ def declare(fact: "Datum"):
 def query(datum):
     relation = get_relation(datum._signature)
     proj = relation.get_projection(datum._as_projection_coords())
-    key_names = [value.name for value in datum._values() if isinstance(value, Variable)]
+    key_names = datum._variable_names()
 
     def decorator(callback):
         proj.add_observer(

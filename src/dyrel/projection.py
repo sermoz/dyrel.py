@@ -15,11 +15,26 @@ WILDCARD = Stub("*")
 
 
 @member_of(Datum)
+def _values(self):
+    return (seg.value for seg in self._segments if seg.is_bearing)
+
+
+@member_of(Datum)
+def _as_record(self):
+    return tuple(self._values())
+
+
+@member_of(Datum)
 def _as_projection_coords(self):
     return tuple(
         WILDCARD if isinstance(value, Variable) else value
         for value in self._values()
     )
+
+
+@member_of(Datum)
+def _variable_names(self):
+    return tuple(var.name for var in self._values() if isinstance(var, Variable))
 
 
 class Projection(metaclass=Slotted_Class):

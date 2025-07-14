@@ -7,6 +7,9 @@ if TYPE_CHECKING:
     from dyrel.signature import Signature
 
 
+Segment = Union["Closed_Segment", "Open_Segment"]
+
+
 class Datum(metaclass=Slotted_Class):
     _segments: tuple["Segment", ...]
     _sig: Optional["Signature"]
@@ -16,7 +19,7 @@ class Datum(metaclass=Slotted_Class):
         self._sig = None
 
     def __getattr__(self, name):
-        return Datum((*self._segments, Namespacing_Segment(name)))
+        return Datum((*self._segments, Open_Segment(name)))
 
     def __call__(self, value):
         return Datum((*self._segments[:-1], self._segments[-1].as_bearing(value)))
@@ -33,17 +36,8 @@ class Datum(metaclass=Slotted_Class):
 
         return self._sig
 
-    def _as_record(self):
-        return tuple(seg.value for seg in self._segments if seg.is_bearing)
 
-    def _values(self):
-        return (seg.value for seg in self._segments if seg.is_bearing)
-
-
-Segment = Union["Bearing_Segment", "Namespacing_Segment"]
-
-
-class Bearing_Segment(metaclass=Slotted_Class):
+class Closed_Segment(metaclass=Slotted_Class):
     """A segment that bears the real value in it.
 
     Example:
@@ -63,7 +57,7 @@ class Bearing_Segment(metaclass=Slotted_Class):
         raise RuntimeError("Ill-formed datum (a call following another call)")
 
 
-class Namespacing_Segment(metaclass=Slotted_Class):
+class Open_Segment(metaclass=Slotted_Class):
     """A segment that's used only for namespacing, i.e. not bearing a value.
 
     Example:
@@ -81,4 +75,4 @@ class Namespacing_Segment(metaclass=Slotted_Class):
         self.name = name
 
     def as_bearing(self, value):
-        return Bearing_Segment(name=self.name, value=value)
+        return Closed_Segment(name=self.name, value=value)
