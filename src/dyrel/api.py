@@ -3,19 +3,16 @@ from typing import TYPE_CHECKING
 from dyrel.relation import get_relation
 
 if TYPE_CHECKING:
-    from dyrel.datum import Datum
+    pass
 
 
 class Node:
     pass
 
 
-def declare(fact: "Datum"):
-    if not fact._is_ground:
-        raise RuntimeError("Can only declare facts!")
-
-    relation = get_relation(fact._signature)
-    relation.add_fact(fact._as_record())
+def add_clause(head, body=None):
+    relation = get_relation(head._signature)
+    relation.add_clause(head, body)
 
 
 def query(datum):

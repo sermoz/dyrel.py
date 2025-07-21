@@ -2,16 +2,15 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Optional
 
 from dyrel.datum import Datum
+from dyrel.defs import WILDCARD
 from dyrel.engine import processing_queue
 from dyrel.snapshot import Snapshot
-from dyrel.util import Slotted_Class, Stub, init_with_kwargs, member_of
+from dyrel.util import Slotted_Class, member_of
 from dyrel.variable import Variable
 
 if TYPE_CHECKING:
     from dyrel.relation import Relation
 
-
-WILDCARD = Stub("*")
 
 
 @member_of(Datum)
@@ -86,6 +85,12 @@ class Projection(metaclass=Slotted_Class):
 
         return self.most_recent_snapshot
 
+    def try_to_fill_by(self, clause):
+        if not self.covers(clause.head_record):
+            return
+
+        # TODO: continue here
+
     def consider_adding(self, full_record):
         # 'full_record' here is a ground datum representing the clause head.
         if not self.covers(full_record):
@@ -110,8 +115,6 @@ class Observer(metaclass=Slotted_Class):
     on_add: Callable
     on_remove: Callable
 
-    __init__ = init_with_kwargs
-
     def revalidate(self):
         current_snapshot = self.proj.get_current_snapshot()
 
@@ -130,3 +133,64 @@ class Observer(metaclass=Slotted_Class):
 
         self.snapshot = current_snapshot
         self.proj.restore_clean_observer(self)
+
+
+class Snapshot(metaclass=Slotted_Class):
+    added: set
+    removed: set
+    next: Optional["Snapshot"]
+
+    def __init__(self):
+        self.added = set()
+        self.removed = set()
+        self.next = None
+
+    @property
+    def is_clean(self):
+        return not self.added and not self.removed
+
+    @property
+    def is_most_recent(self):
+        return self.next is None
+
+    def add(self, record):
+        if record in self.removed:
+            self.removed.remove(record)
+        else:
+            self.added.add(record)
+
+    def remove(self, record):
+        if record in self.added:
+            self.added.remove(record)
+        else:
+            self.removed.add(record)
+
+    def unchain(self):
+        if self.is_most_recent:
+            return
+
+        unchain(self)
+
+
+def unchain(snapshot):
+    """Unchain the given snapshot which should not be the most recent one."""
+    next_one = snapshot.next
+
+    if next_one.is_most_recent:
+        return  # this is the definition of "unchained"
+
+    unchain(next_one)
+
+    A, R = snapshot.added, snapshot.removed
+    An, Rn = next_one.added, next_one.removed
+
+    pA = An - R
+    pR = Rn - A
+
+    A -= Rn
+    A |= pA
+
+    R -= An
+    R |= pR
+
+    snapshot.next = next_one.next

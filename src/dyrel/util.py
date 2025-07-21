@@ -1,9 +1,11 @@
-from collections.abc import Iterable
+import inspect
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 
+from dyrel.util import Slotted_Class
 
-@dataclass(eq=False, slots=True)
-class Stub:
+
+class Stub(metaclass=Slotted_Class):
     printed_name: str
 
     def __repr__(self):
@@ -14,36 +16,6 @@ NO_VALUE = Stub("NO_VALUE")
 
 
 get_attr_plain = object.__getattribute__
-
-
-# def method_for(*klasses):
-#     def install_in(fn, klass):
-#         name = fn.__name__
-#         assert not hasattr(klass, name), f"Class {klass} already has member \"{name}\""
-#         setattr(klass, name, fn)
-
-#     def wrapper(fn):
-#         for klass in klasses:
-#             install_in(fn, klass)
-
-#         return None  # don't put real fn in whatever namespace this decorator is being used in
-
-#     return wrapper
-
-
-# def property_for(*klasses):
-#     def install_in(fn, klass):
-#         name = fn.__name__
-#         assert not hasattr(klass, name), f"Class {klass} already has member \"{name}\""
-#         setattr(klass, name, property(fn))
-
-#     def wrapper(fn):
-#         for klass in klasses:
-#             install_in(fn, klass)
-
-#         return None  # don't put real fn in whatever namespace this decorator is being used in
-
-#     return wrapper
 
 
 def member_of(klass):
@@ -86,18 +58,30 @@ class Slotted_Class(type):
             return super().__new__(cls, name, bases, namespace)
 
         if "__slots__" in namespace:
-            raise RuntimeError("__slots__ is already present, it is not expected")
+            raise RuntimeError(f"{name}: '__slots__' is not expected")
 
         annotations = namespace["__annotations__"]
         namespace["__slots__"] = tuple(annotations.keys())
 
+        if "__init__" not in namespace:
+            namespace["__init__"] = slotted_class_initializer(namespace["__slots__"])
+
         return super().__new__(cls, name, bases, namespace)
 
 
-def tuplify(thing: Iterable) -> tuple:
+def to_tuple(thing: Iterable) -> tuple:
     return thing if isinstance(thing, tuple) else tuple(thing)
 
 
-def init_with_kwargs(self, **kwargs):
-    for key, val in kwargs.items():
-        setattr(self, key, val)
+def slotted_class_initializer(slots):
+    sig = inspect.Signature([
+        inspect.Parameter(slot, inspect.Parameter.POSITIONAL_OR_KEYWORD) for slot in slots
+    ])
+
+    def initializer(self, *args, **kwargs):
+        arg_dict = sig.bind(*args, **kwargs).arguments
+
+        for key, val in arg_dict.items():
+            setattr(self, key, val)
+
+    return initializer

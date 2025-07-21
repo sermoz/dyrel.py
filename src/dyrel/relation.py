@@ -1,18 +1,13 @@
 from typing import TYPE_CHECKING
 
+from dyrel.clause import Clause
 from dyrel.datum import Datum, Open_Segment
 from dyrel.projection import Projection
+from dyrel.util import Slotted_Class
 
 if TYPE_CHECKING:
     from dyrel.signature import Signature
 
-
-class Relation_Root:
-    def __getattr__(self, name):
-        return Datum((Open_Segment(name),))
-
-
-r_object = Relation_Root()
 
 relation_registry: dict["Signature", "Relation"] = {}
 
@@ -26,17 +21,23 @@ def get_relation(signature):
     return relation
 
 
-class Relation:
+class Relation(metaclass=Slotted_Class):
+    signature: "Signature"
+    clauses: list
+    projections: dict
+
     def __init__(self, signature):
         self.signature = signature
-        self.facts = set()  # clauses without bodies
+        self.clauses = []
         self.projections = {}
 
-    def add_fact(self, record):
-        self.facts.add(record)
+    def add_clause(self, head_record, body):
+        clause = Clause(head_record, body)
+
+        self.clauses.append(clause)
 
         for proj in self.projections.values():
-            proj.consider_adding(record)
+            proj.maybe_populate_by(clause)
 
     def get_projection(self, coords: tuple):
         try:
@@ -44,7 +45,7 @@ class Relation:
         except KeyError:
             proj = self.projections[coords] = Projection(self, coords)
 
-            for fact in self.facts:
-                proj.consider_adding(fact)
+            for clause in self.clauses:
+                proj.maybe_populate_by(clause)
 
         return proj
