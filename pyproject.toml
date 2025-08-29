@@ -7,7 +7,9 @@ authors = [
     { name = "Serhii Mozghovyi", email = "egnartsms@gmail.com" }
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "rpyc>=6.0.2",
+]
 
 [build-system]
 requires = ["hatchling"]

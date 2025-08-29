@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Optional
 from dyrel.datum import Datum
 from dyrel.defs import WILDCARD
 from dyrel.engine import processing_queue
-from dyrel.snapshot import Snapshot
 from dyrel.util import Slotted_Class, member_of
 from dyrel.variable import Variable
 

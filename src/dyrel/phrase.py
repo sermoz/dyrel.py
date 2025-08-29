@@ -1,62 +1,62 @@
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional
 
-from dyrel.signature import get_signature
-from dyrel.util import Slotted_Class
+from dyrel import util
 
 if TYPE_CHECKING:
-    from dyrel.signature import Signature
-
-
-class Variable(metaclass=Slotted_Class):
-    name: str
-
-    is_ground = False
-
-
-var_table = {}
+    pass
+    # from dyrel.signature import Signature
 
 
 class V_Object:
     def __getattr__(self, name):
-        try:
-            var = var_table[name]
-        except KeyError:
-            var = var_table[name] = Variable(name)
-
-        return var
+        return Var(name)
 
 
-# v_object = V_Object()
+class Var:
+    name: str
+
+    __slots__ = util.annotated_vars()
+
+    is_var = True
+
+    def __init__(self, name):
+        self.name = name
+
+    def __eq__(self, other_var):
+        return isinstance(other_var, Var) and self.name == other_var.name
+
+
+class Val:
+    val: Any
+
+    __slots__ = util.annotated_vars()
+
+    is_var = False
+
+    def __init__(self, val):
+        self.val = val
+
+
+type Arg = Var | Val
+
+
+def make_arg(thing) -> Arg:
+    return thing if isinstance(thing, Var) else Val(thing)
 
 
 class Relation_Root:
     def __getattr__(self, name):
-        return Word_Chain(None, name)
+        return Phrase(None, name)
 
 
-# r_object = Relation_Root()
+class Phrase:
+    """A phrase is represented as a reverse list of words and their arguments"""
 
-
-class Atom(metaclass=Slotted_Class):
-    """A value that goes with a closed segments in a phrase"""
-    val: Any
-
-    is_ground = True
-
-
-type Argument = Variable | Atom
-
-
-def phrase_argument(arg) -> Argument:
-    return arg if isinstance(arg, Variable) else Atom(arg)
-
-
-class Word_Chain(metaclass=Slotted_Class):
-    """A phrase represented as a reversed list of words and their arguments."""
-
-    _prev: Optional["Word_Chain"]
+    _prev: Optional["Phrase"]
     _name: str
-    _arg: Optional["Argument"]
+    _arg: Arg | None
+
+    __slots__ = util.annotated_vars()
 
     def __init__(self, prev, name, arg=None):
         self._prev = prev
@@ -64,52 +64,35 @@ class Word_Chain(metaclass=Slotted_Class):
         self._arg = arg
 
     def __getattr__(self, name):
-        return Word_Chain(self, name)
+        return Phrase(self, name)
 
     def __call__(self, value):
         if self._arg is None:
-            return Word_Chain(self._prev, self._name, phrase_argument(value))
+            return Phrase(self._prev, self._name, make_arg(value))
         else:
             raise RuntimeError("Ill-formed phrase (a call following another call)")
+
+    def __le__(self, body_phrases):
+        from dyrel.relation import declare_clause
+
+        declare_clause(self, body_phrases)
 
     def __repr__(self):
         # TODO: implement
         return f"<Phrase: {0}>"
 
 
-# def is_phrase_open(phrase):
-#     return phrase._atom is None
+# True if there's argument, False if it's just for namespacing.
+type Word = tuple[str, Arg | None]
 
 
-# def word_chain_signature(chain):
-#     words = []
+def phrase_words(phrase) -> list[Word]:
+    words = []
 
-#     while chain is not None:
-#         words.append((chain._name, chain._arg is not None))
-#         chain = chain._prev
+    while phrase is not None:
+        words.append((phrase._name, phrase._arg))
+        phrase = phrase._prev
 
-#     words.reverse()
+    words.reverse()
 
-#     return get_signature(words)
-
-
-def phrase_by_word_chain(chain):
-    words, args = [], []
-
-    while chain is not None:
-        words.append((chain._name, chain._arg is not None))
-
-        if chain._arg is not None:
-            args.append(chain._arg)
-
-        chain = chain._prev
-
-    words = tuple(reversed(words))
-    args = tuple(reversed(args))
-
-    return Phrase(signature=get_signature(words), args=args)
-
-
-class Phrase(metaclass=Slotted_Class):
-    signature: "Signature"
-    args: tuple[Argument]
+    return words

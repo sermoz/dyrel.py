@@ -1,19 +1,5 @@
 import inspect
-from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
-
-from dyrel.util import Slotted_Class
-
-
-class Stub(metaclass=Slotted_Class):
-    printed_name: str
-
-    def __repr__(self):
-        return f"<stub: {self.printed_name}>"
-
-
-NO_VALUE = Stub("NO_VALUE")
-
+from collections.abc import Iterable
 
 get_attr_plain = object.__getattribute__
 
@@ -52,36 +38,15 @@ class cached_property:
         return value
 
 
-class Slotted_Class(type):
-    def __new__(cls, name, bases, namespace):
-        if "__annotations__" not in namespace:
-            return super().__new__(cls, name, bases, namespace)
-
-        if "__slots__" in namespace:
-            raise RuntimeError(f"{name}: '__slots__' is not expected")
-
-        annotations = namespace["__annotations__"]
-        namespace["__slots__"] = tuple(annotations.keys())
-
-        if "__init__" not in namespace:
-            namespace["__init__"] = slotted_class_initializer(namespace["__slots__"])
-
-        return super().__new__(cls, name, bases, namespace)
-
-
 def to_tuple(thing: Iterable) -> tuple:
     return thing if isinstance(thing, tuple) else tuple(thing)
 
 
-def slotted_class_initializer(slots):
-    sig = inspect.Signature([
-        inspect.Parameter(slot, inspect.Parameter.POSITIONAL_OR_KEYWORD) for slot in slots
-    ])
+def annotated_vars():
+    """Extracts all the annotated variables of the calling frame"""
+    return list(inspect.currentframe().f_back.f_locals["__annotations__"])
 
-    def initializer(self, *args, **kwargs):
-        arg_dict = sig.bind(*args, **kwargs).arguments
 
-        for key, val in arg_dict.items():
-            setattr(self, key, val)
-
-    return initializer
+def keyword_initializer(self, **kwargs):
+    for key, val in kwargs.items():
+        setattr(self, key, val)
