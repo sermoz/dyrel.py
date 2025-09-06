@@ -8,7 +8,9 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "levenshtein>=0.27.1",
     "rpyc>=6.0.2",
+    "watchdog>=6.0.0",
 ]
 
 [build-system]
@@ -24,6 +26,7 @@ dev = [
 line-length = 90
 indent-width = 4
 target-version = "py313"
+format.quote-style = "double"
 
 [tool.ruff.lint]
 isort.combine-as-imports = true
@@ -39,5 +42,8 @@ select = [
   "UP",   # Upgrade to modern Python syntax: https://docs.astral.sh/ruff/rules/#pyupgrade-up
 ]
 
-[tool.ruff.format]
-quote-style = "double"
+[tool.hatch.build.targets.sdist]
+include = [
+  "src/",
+  "script/host.py",
+]

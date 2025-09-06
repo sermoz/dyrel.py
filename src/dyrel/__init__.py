@@ -1,15 +1,16 @@
-# __version__ = "0.1.0"
+__version__ = "0.1.0"
 
-# from dyrel.api import declare, query
-# from dyrel.engine import processing_queue
-# from dyrel.relation import r_object
+#from dyrel.word import V_Object
+#from dyrel.relation import Relation_Root
 
-# # import dyrel.signature
-# # import dyrel.snapshot
-# from dyrel.variable import v_object
-
-# __all__ = ("declare", "query", "r", "v", "processing_queue")
+# r = Relation_Root()
+# v = V_Object()
 
 
-# r = r_object
-# v = v_object
+def concat(items, convertor=str):
+	return "".join([convertor(item) for item in items])
+
+
+__all__ = ("r", "v")
+
+

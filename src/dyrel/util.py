@@ -4,9 +4,9 @@ from collections.abc import Iterable
 get_attr_plain = object.__getattribute__
 
 
-def member_of(klass):
+def member_of(klass, override=False):
     def wrapper(member):
-        assert not hasattr(klass, member.__name__), (
+        assert override or not hasattr(klass, member.__name__), (
             f'Class {klass} already has member "{member.__name__}"'
         )
         setattr(klass, member.__name__, member)
