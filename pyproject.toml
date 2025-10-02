@@ -10,8 +10,10 @@ requires-python = ">=3.13"
 dependencies = [
     "levenshtein>=0.27.1",
     "rpyc>=6.0.2",
-    "watchdog>=6.0.0",
 ]
+
+[project.scripts]
+dyrel-runtime = "dyrel.runtime.host:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -45,5 +47,5 @@ select = [
 [tool.hatch.build.targets.sdist]
 include = [
   "src/",
-  "script/host.py",
+  # "script/",  not used at this point, uncomment if start using
 ]

@@ -1,9 +1,16 @@
-from dyrel import R, v
+# from dyrel import R, v
 
-R.person("serhii").father(v.father) <= (
-    R.person(v.person_A).father(v.person_B),
-    R.artist(v.person_B).teacher(v.dad),
-)
+# R.person("serhii").father(v.father) <= (
+#     R.person(v.person_A).father(v.person_B),
+#     R.artist(v.person_B).teacher(v.dad),
+# )
+
+
+x = 10
+y = x ** 2
+
+print(y)
+
 
 # r.person("serhii").parent("vova") <= ()
 # r.person("serhii").parent("tanya") <= ()

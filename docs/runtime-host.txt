@@ -1,0 +1,93 @@
+## Runtime host
+
+Runtime host is a process which hosts the "program image" -- a running program.
+That's what we need to have live programming and interactivity.
+
+A runtime host can be thought of as a "knowledge system", i.e. something that
+has some data and derivation/deduction rules, and can be queried for data,
+including derived/deduced data. That's the whole point of having such a system,
+right? But in real life, we don't just write knowledge systems, although in
+this paradigm we're thinking about all the programs as knowledge systems. In
+practice, we need our programs to serve HTTP requests, draw some scenes with
+OpenGL, draw GUI widgets, etc. In other words, we need to be able to perform
+side effects. So, the runtime host needs to be able to do any kind of side
+effects.
+
+So, we need to combine two types of activity in the runtime host:
+
+    - reaching the fixpoint (stabilizing)
+    - any other side effects
+
+## Side effects
+
+Side effects may not touch the database/relation system at all. For example, we
+can just subscribe to some event, like when a socket has anything to read from
+it, and then read from this socket in a callback and just print the contents on
+the screen or append to a file. The relational system is not affected by these
+actions, right? The relational system is only affected when we assert/retract
+clauses to/from the system, or add proactive rules or other kind of provisioned
+side effects of the relational system.
+
+So, side effects can be relation-aware or relation-unaware.
+
+
+## Architecture and threads of the runtime host process
+
+### Source files monitoring
+
+One source of destabilizing of the relational system is changes in the source
+files. When a source file changes, we need to re-load it and find out what
+needs to be incrementally changed as a result. That's why we need to monitor
+file system changes with Inotify.
+
+### Serving clients
+
+We also need to serve our RPyC clients. This includes, above all, answering to
+clients' questions about the system: state of source files, where the given
+predicate is referenced, etc. Besides that, clients may be also changing the
+system in the sense of relation destabilization. For now, the only way to
+destabilize is through changing the source files, but later we may implement
+some client-triggered changes (such as predicate renaming, for example).
+
+### Stabilization
+
+Relation stabilization is the process of finding the fixpoint. That's how the
+dynamic relational system does everything.
+
+Stabilization is theoretically possible to parallelize across multiple threads.
+But in Python, this won't help because of the GIL. So we're not thinking yet in
+this direction.
+
+Stabilization should be done by a single thread -- the main thread. Clients,
+consequently, should be served by separate threads to avoid unresponsiveness.
+When clients try to interact with the system when it's in process of
+stabilization, we may choose to:
+
+- block, i.e. they wait until the system is ready (probably bad)
+
+- refuse, i.e. clients see some error code/exception
+
+- serve anyway, if possible. Not sure it's always possible. May deliver some
+  stale data. Modifications of relations while we're still stabilizing it
+  is also questionable.
+
+
+## What we do in the v0
+
+The file system monitoring (with inotify or whatever) may be implemented in a
+separate thread. It's not required that the monitoring is done by the same
+thread that's doing the stabilization.
+
+But in the v0 we'll do both things with the main thread. Because source file
+changes and stabilization are closely related.
+
+(NOTE we may want to add some debounce interval in source file changes
+monitoring. That would help to do only 1 stabilization when multiple files are
+saved.)
+
+It is essential to have client communication in separate threads, as we want to
+avoid unresponsiveness. The main thread may be doing something CPU-bound, or
+enter a vicious/infinite loop, etc. We cannot serve clients in this thread.
+
+Besides that, we want to notify clients of certain changes in the state of
+source files (e.g. annotations).
