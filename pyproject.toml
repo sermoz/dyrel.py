@@ -8,8 +8,6 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
-    "levenshtein>=0.27.1",
-    "rpyc>=6.0.2",
 ]
 
 [project.scripts]

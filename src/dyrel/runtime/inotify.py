@@ -26,7 +26,7 @@ libc.inotify_rm_watch.errcheck = error_handler
 class Inotify:
     fd: int
 
-    __slots__ = util.annotated_vars()
+    __slots__ = tuple(__annotations__)
 
     def __init__(self):
         self.fd = libc.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
@@ -83,8 +83,8 @@ class Event:
     cookie: int
     name: str
 
-    __slots__ = util.annotated_vars()
-    __init__ = util.keyword_initializer
+    __slots__ = tuple(__annotations__)
+    __init__ = util.keyword_initializer_for(__slots__)
 
     def __repr__(self):
         return f"#<wd={self.wd}, mask={repr(self.mask)}, cookie={self.cookie}, name=\"{self.name}\">"

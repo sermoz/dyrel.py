@@ -73,8 +73,8 @@ class Relation_Application:
     args: list[Arg]
     lineno: int
 
-    __slots__ = util.annotated_vars()
-    __init__ = util.keyword_initializer
+    __slots__ = tuple(__annotations__)
+    __init__ = util.keyword_initializer_for(__slots__)
 
 
 
@@ -122,7 +122,7 @@ class Relation:
     clauses: list
     apps: dict[bytes, Rel_App_Flow]
 
-    __slots__ = util.annotated_vars()
+    __slots__ = tuple(__annotations__)
 
     def __init__(self, words, code):
         self.words = words

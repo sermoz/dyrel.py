@@ -6,6 +6,7 @@ import sys
 import termios
 
 from .inotify import Inotify, Mask, unpack_events
+from .loader import load_dir
 
 
 def main():
@@ -36,5 +37,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    load_dir("sample")
     sys.exit(0)

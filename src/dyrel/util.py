@@ -42,11 +42,33 @@ def to_tuple(thing: Iterable) -> tuple:
     return thing if isinstance(thing, tuple) else tuple(thing)
 
 
-def annotated_vars():
-    """Extracts all the annotated variables of the calling frame"""
-    return list(inspect.currentframe().f_back.f_locals["__annotations__"])
+def initializer_for(slots):
+    from inspect import Parameter, Signature
+
+    sig = Signature([
+        Parameter(slot, Parameter.POSITIONAL_OR_KEYWORD) for slot in slots
+    ])
+
+    def initializer(self, *args, **kwargs):
+        arg_dict = sig.bind(*args, **kwargs).arguments
+
+        for key, val in arg_dict.items():
+            setattr(self, key, val)
+
+    return initializer
 
 
-def keyword_initializer(self, **kwargs):
-    for key, val in kwargs.items():
-        setattr(self, key, val)
+def keyword_initializer_for(slots):
+    from inspect import Parameter, Signature
+
+    sig = Signature([
+        Parameter(slot, Parameter.KEYWORD_ONLY) for slot in slots
+    ])
+
+    def initializer(self, **kwargs):
+        arg_dict = sig.bind(**kwargs).arguments
+
+        for key, val in arg_dict.items():
+            setattr(self, key, val)
+
+    return initializer
