@@ -251,7 +251,7 @@ r += (
     r.order(2464).customer("Saskia").total(12.00),
     r.order(2465).customer("Julius").total(20.00),
     r.order(2472).customer("Saskia").total(8.00),
-    r.order(2477).customer("Julis").total(4.00),
+    r.order(2477).customer("Julius").total(4.00),
     r.order(2490).customer("Robert").total(16.40),
     r.order(2492).customer("Robert").total(3.00),
     r.order(2494).customer("Saskia").total(6.00),

@@ -35,11 +35,9 @@ up to date lazily as leaf data changes.
 - **segment / signature segment**: one element of a signature. Bare
   (`.subtotal`) or carrying one argument (`.city(v.C)`).
 - **position**: an argument slot of a relation. A segment with an argument
-  contributes one position. A trailing `== X` fills the bare trailing
-  segment if there is one, else contributes one *anonymous* position
-  after the last segment; a positional variable/literal in the combined
-  form contributes the anonymous position too (see §3, §4). Each
-  position is a key position or an FD position.
+  contributes one position. A trailing `== X` fills the argument of the
+  bare trailing segment (§3). Each position is a key position or the
+  relation's single FD position.
 - **goal / subgoal / relation application**: a use of a relation inside a
   rule. The head is the goal; the body conjuncts are subgoals, the things
   that must be satisfied to satisfy the head. "Relation application" and
@@ -58,6 +56,12 @@ up to date lazily as leaf data changes.
   before projection. Many solutions may map to one record (§8). Not a
   synonym of record.
 - **tuple**: a plain Python tuple used as a key.
+- **value struct**: an immutable, hashable Python compound value (tuple,
+  named tuple, frozen dataclass, frozenset) used as a value or a key;
+  identified by its contents (§3). Never "object" or "entity", which are
+  reserved for the deferred identity story (§14).
+- **multi-value head** (informally *hydra*): a head with keyword items,
+  defining several relations from one body evaluation (§5).
 - **env**: the live variables of a rule instance at a point of the
   plan. Conceptual; at runtime it is the positional `args` tuple of a
   node (§8), never a dict except when reconstructed for debugging.
@@ -81,65 +85,110 @@ up to date lazily as leaf data changes.
 ## 3. Relation shape (settled)
 
 A relation is designated by a signature whose segments are each bare or
-carry exactly one argument, optionally followed by one **anonymous
-position** after the last segment. Each position is either a *key
-position* (unmarked) or an *FD position*, marked at the head with
-`v == X` inside the argument (§5). Every FD position is functionally
-determined by **all** key positions, regardless of textual order.
-Informally an FD position is called a *value*, but it is not a separate
-kind of thing: "value" is short for "position with a declared FD
-contract".
+carry exactly one argument. Every argument is a **key position**, with
+one exception: when the signature ends in a bare segment and is written
+`sig == X`, X becomes that segment's argument and is the relation's
+single **FD position**, functionally determined by all key positions.
+Informally the FD position is the relation's *value*; "value" is short
+for "the position with the FD contract".
 
 Consequences:
 
-- A relation has zero or more key positions and zero or more FD positions,
-  in any order. Zero-key relations exist (constants). Whether zero-key
-  relations with FD positions are needed is open.
-- A record is the key tuple plus the value tuple, each in textual order.
-- Several FD positions in one relation make a **composite record**, not
-  several relations: one tuple per key in the slice, and a change in any
-  FD position notifies readers of all of them. Writing one relation
-  instead of several is the author's choice and trades per-field
-  reactivity for a single record. This is the only multi-value record in the
-  core.
-- The shape (position profile, FD marking, fold policy per FD position)
-  is a static property of the relation. Every head contributing to a
-  relation must agree on it (§9).
-- The anonymous position is the only position without a segment name.
-  At most one, always after the last segment. Written `== X` after a
-  signature whose last segment already has an argument (asserting), or as a
-  variable/literal positional item in the combined form (§4,
-  non-asserting).
-- `sig == X` in general: append an argument X carrying the FD
-  assertion. If the signature ends in a bare segment, X becomes that
-  segment's argument (`subtotal == v.S` is `subtotal(v == v.S)`);
-  otherwise X is the anonymous position (`fib(v.N) == v.R` is
-  `fib(v.N)(v == v.R)`).
+- A relation has zero or more key positions and at most one FD position,
+  always the last position and always named by its segment. Zero-key
+  relations exist (constants); whether zero-key relations with an FD
+  position are needed is open.
+- A record is the key tuple plus the value, if any.
+- No relation has several FD positions. Several values sharing a key are
+  either several relations, defined together by a multi-value head (§5)
+  and read together by the combined form (§4), or one value struct
+  (below) in one FD position. This is a reactivity choice: separate
+  relations give per-field deltas and per-field reads; one struct gives
+  one record that changes as a whole. Reading several relations as one
+  slice is the reader's choice (combined form), not the definer's.
+- The shape (position profile, FD contract, fold policy) is a static
+  property of the relation. Every head contributing to a relation must
+  agree on it (§9).
+- `sig == X` is legal only when `sig` ends in a bare segment. A relation
+  whose last segment carries a key argument needs one more bare segment
+  to have a value: `r.fib(v.N).value == v.R`, not `r.fib(v.N) == v.R`.
 
-History: the earlier design confined the FD contract to the last position
-and spelled it only as trailing `== X`. Generalizing the marker to any
-position removed the one place where argument order carried meaning.
+History. Earlier versions had an FD marker `v == X` legal on any
+position, an *anonymous* trailing position (`fib(v.N) == v.R`) and
+*composite records* with several FD positions in one signature. All
+three are removed: one FD position, last, named by its bare segment,
+spelled only by `sig == X`. The any-position marker had been introduced
+so that argument order carried no meaning; with a single trailing FD
+position the only order that matters is "last", and that is fixed by
+the segment being bare, not by textual position among arguments.
+Composite records lost their one distinctive property, one reactivity
+unit, to the combined form on the read side, and forced readers to spell
+out every position (`.subtotal(v).discount == v.D`) to read one.
 
 ### Relation identity (settled)
 
-A relation is identified by its segment names **plus** which segments carry
-a position **plus** whether an anonymous position exists. Hence:
+A relation is identified by its segment names **plus** which segments
+carry an argument. Hence:
 
 - `order(O).fulfillment_delayed` (one position) and
-  `order(O).fulfillment_delayed == True` (two positions, the second
-  anonymous) are *different* relations.
-- `product(P).costs(v == Price).at(D)` and `product(P).costs(Price).at(D)`
-  are the *same* relation.
-- `order(O).subtotal == S`, `order(O).subtotal(v == S)` and
-  `order(O).subtotal(S)` are the *same* relation.
-- `fib(N) == R`, `fib(N)(v == R)` and `fib(N)(R)` are the *same* relation.
-- Whether a position carries an FD contract is *not* part of the
+  `order(O).fulfillment_delayed == True` (two positions, the second being
+  the argument of `fulfillment_delayed`) are *different* relations.
+- `order(O).subtotal == S` and `order(O).subtotal(S)` are the *same*
+  relation.
+- `fib(N).value == R` and `fib(N).value(R)` are the *same* relation.
+- Whether the last position carries an FD contract is *not* part of the
   identity; it is a contract on the one relation with that identity.
 
 Rejected: a trie or any hierarchical store keyed by prefix; an "object"
 identity for `r.order(A)` that `r.order(A).x` attaches attributes to. Every
 relation is its own storage (per slice); prefixes mean nothing to the
 engine.
+
+### Value structs (settled)
+
+Compound data in v0 is **value structs**: any immutable, hashable Python
+compound value (tuple, `NamedTuple`, frozen dataclass, frozenset). A
+struct is identified by its contents, exactly like a record: two
+derivations producing equal structs produce the same value. No engine
+identity, no interning (an optimization if memory says so), no minting.
+
+- **Where they appear.** As the value of an FD position (a bundle that
+  changes as a whole, replacing the removed composite record); as a key
+  position (a compound key in one slot); as fold elements
+  (`setof(Line(item=v.I, qty=v.Q))`); as mutations, errors and effects
+  (§11), which are value structs already.
+- **Building and destructuring is one expression goal**, planned by
+  mode like `v.N - 1 == v.N1`:
+
+  ```python
+  v.Rt == Route(from_=v.F, to_=v.T, date=v.D)
+  ```
+
+  All fields bound, `Rt` free: build, ≤1. `Rt` bound: destructure,
+  binding the free fields and checking the bound ones, ≤1; a value of
+  another shape fails the match (no solution, not an error). `Rt` and a
+  field both free: unbindable, mode error naming the variable. The
+  constructor is a Python callable known at definition time and the
+  field list is in the text, so the shape is static; the goal is a
+  segment step (§8), no slice, no subscription.
+- **Field access** `v.Rt.date` on a bound variable is a pure expression,
+  captured like any `v` expression.
+- **A struct in a key position is one position.** Binding is all or
+  nothing at the mode level; a lookup by one field is an index over the
+  slice (§6), not a keyed slice. Keys should be structs of stable
+  identifiers; volatile data belongs in values.
+- **A struct in a value position is one record.** A change to any field
+  is a change of the record. For per-field reactivity use several
+  relations (multi-value head).
+- **Leaves stay flat** in v0. A mapping exposing several columns as one
+  struct (SQLAlchemy `composite()`) is a later bridge.
+- Termination: no worse than arithmetic. Datalog bans function symbols
+  for finiteness; `v.N - 1` gave that up already, and bounded demand is
+  what keeps evaluation finite.
+
+**Not in v0**: structs with identity (a handle standing for "the group
+of relations under prefix P with key K", families of such handles, and
+late-bound reads through a handle). Discussed, deferred: §14.
 
 ---
 
@@ -152,44 +201,35 @@ made it a key or a value.
 | form | meaning |
 |---|---|
 | `.seg(v.X)` | bind a position; asserts nothing |
-| `.seg(v == v.X)` | bind a position and assert its FD (see below) |
-| `sig == v.X` | append an asserted argument (bare segment, else anonymous) |
-| `sig(v.X)` (combined form) | bind the anonymous position; asserts nothing |
+| `sig == v.X` | fill the bare trailing segment, asserting its FD |
 | `seg=v.X` (keyword, combined form) | same as `_r.seg == v.X` |
 | bare trailing segment | existence check; the segment is only a name |
 
 Details:
 
-- `(v.X)` is legal on any position, including one with an FD contract.
-  Reading an FD position with `(v.X)` simply asserts nothing.
-- `v == v.X` inside an argument is an **assertion** that this position is
+- `(v.X)` is legal on any position, including the FD position. Reading
+  the FD position with `(v.X)` simply asserts nothing.
+- `sig == v.X` is an **assertion** that the filled position is
   functionally determined by the key positions. It is legal iff the
   engine can guarantee that: a declared FD contract (§5), a mapping-level
-  uniqueness declaration for a leaf (§7), or single-rule exact propagation
-  (§6). Otherwise it is a static error naming the fix ("`profile` is not
-  functionally determined by `order`; use `profile(v.C)`").
-- `sig == v.X` is the same assertion in a shorter spelling: it appends
-  an argument X with the assertion. If the signature ends in a bare segment,
-  X becomes that segment's argument, so `r.order(v.O).subtotal == v.S`
-  is `r.order(v.O).subtotal(v == v.S)`. Otherwise X is the anonymous
-  position, so `r.fib(v.N) == v.R` is `r.fib(v.N)(v == v.R)`.
-- The assertion says nothing about modes. `r.order(v.O).uid(v == "abc")`
+  uniqueness declaration for a leaf (§7), or single-rule exact
+  propagation (§6). Otherwise it is a static error naming the fix
+  ("`profile` is not functionally determined by `order`; use
+  `profile(v.C)`").
+- The assertion says nothing about modes. `r.order(v.O).uid == "abc"`
   with `O` free is a lookup by uid and is served like `uid("abc")` would
   be.
-- RHS of `v ==` and of `sig ==` is restricted to a variable or a
-  literal. Folds (`v == sum(...)`) are head-only.
+- RHS of `sig ==` is restricted to a variable or a literal. Folds
+  (`== sum(...)`) are head-only. Value structs are built and taken apart
+  by a separate expression goal (§3).
 - `== v.X` after a signature ending in a bare segment *defined* bare
   (e.g. `order(O).fulfillment_delayed == v.Flag`) refers to a different
   relation, `order.fulfillment_delayed` with an argument, which is
   normally undefined; see §10 for how that is reported.
 - A bare trailing segment on a relation whose only remaining position is
-  FD (`r.order(v.O).subtotal`, where `subtotal` has no argument of its
-  own) is an existence check. Reading a relation with FD positions
-  without caring about them binds them to `_`.
-- `v == X` requires `__eq__` on the variables namespace object, which
-  sets its `__hash__` to `None` and makes `v == v` a marker rather than
-  a bool. Acceptable since `v` is never hashed or compared for real;
-  comment it in the code.
+  the FD position (`r.order(v.O).subtotal`) is an existence check.
+  Reading a relation with an FD position without caring about it binds
+  it to `_`.
 
 ### Combined form (settled)
 
@@ -204,15 +244,15 @@ r.order(v.Order)(
 )
 ```
 
-- Positional items that are `_r` signatures (`_r.x(...)`, `_r.x == ...`,
-  `_r.x`) are signature continuations; use `_r`, not `r`, for suffixes.
-- A positional item that is a variable or literal binds the anonymous
-  position of the signature so far, asserting nothing: `r.fib(v.N)(v.R)`.
-  With `v == v.R` it asserts the FD. Signatures, variables/literals and
-  keywords are distinguishable by type, so there is no ambiguity.
-- Keyword items `name=v.X` append a bare segment `name` and bind its
-  position, asserting the FD (identical to `_r.name == v.X`, i.e.
-  `_r.name(v == v.X)`).
+- Positional items are `_r` signatures (`_r.x(...)`, `_r.x == ...`,
+  `_r.x`), i.e. signature continuations; use `_r`, not `r`, for
+  suffixes. Nothing else is legal as a positional item.
+- Keyword items `name=v.X` append a bare segment `name` and fill its
+  argument, asserting the FD (identical to `_r.name == v.X`).
+- A keyword-only call on a bare segment is the combined form on the
+  signature so far: `r.order(v.O).insurance(net=v.N, fee=v.F)` reads
+  `order.insurance.net` and `order.insurance.fee` as one slice. This is
+  unambiguous since a segment takes exactly one positional argument.
 - **Parentheses mean one slice, commas mean several.** The combined form
   is one relation application: one plan step, one slice identity. For a
   leaf it becomes one SQL query with all filters; for derived relations one
@@ -305,14 +345,15 @@ and/or nesting.
 
   ```python
   case(
-      when(r.order(v.O).state(v == "cancelled")).then(
-          r.price(v == 0),
+      when(r.order(v.O).state == "cancelled").then(
+          r.price == 0,
       ),
       when(r.order(v.O).discount(v.D)).then(
-          r.price(v == v.Base * (1 - v.D)),
+          v.Base * (1 - v.D) == v.P,
+          r.price == v.P,
       ),
       else_(
-          r.price(v == v.Base),
+          r.price == v.Base,
       ),
   )
   ```
@@ -371,39 +412,38 @@ and/or nesting.
 # key-only relation
 r += (r.city(v.City).capital) <= (...)
 
-# FD position marked inside the argument; keys are Prod and Date
-r += (r.product(v.Prod).costs(v == v.Price).at(v.Date)) <= (...)
-
-# anonymous FD position; sugar for r.fib(v.N)(v == v.Result)
-r += (r.fib(v.N) == v.Result) <= (...)
-
-# same marking via trailing ==; sugar for .subtotal(v == v.Sub)
+# FD position: the bare trailing segment filled by ==; key is Order
 r += (r.order(v.Order).subtotal == v.Sub) <= (...)
 
-# FD position via keyword: appends bare segment `price`, marks it
-r += (r.ticket(v.T)(price=v.Subtotal, expiration_date=v.Date)) <= (...)
+# two keys, one FD position
+r += (r.product(v.Prod).at(v.Date).costs == v.Price) <= (...)
 
-# folds, one per FD position; two FD positions = one composite record
+# multi-value head ("hydra"): two relations, order.subtotal and
+# order.discount, from one body evaluation; keyword = FD position
+r += (r.order(v.Order)(subtotal=v.Sub, discount=v.Dis)) <= (...)
+
+# folds, one per relation of a multi-value head
 r += (
-    r.order(v.Order).has
-        .subtotal(v == sum(v.Item_Price))
-        .items(v == setof(v.Item))
+    r.order(v.Order)(
+        subtotal=sum(v.Item_Price),
+        items=setof(v.Item),
+    )
 ) <= (...)
 ```
 
-- An FD position is declared at the head by `v == X` inside the
-  argument, by the keyword form, or by `sig == X`, which fills a bare
-  trailing segment or adds an anonymous position (§3). `>>` and
-  `out(...)` are gone.
+- An FD position is declared at the head by `sig == X` or by the keyword
+  form of the combined form (§3, §4). `v == X` inside an argument, `>>`
+  and `out(...)` are gone.
 - Heads are always parenthesized: `(head) <= (body)`. This is needed for
   the `sig == X` spelling (Python would otherwise chain `a == b <= c` as
   a comparison), and heads rarely fit on one line anyway, so the
   formatter would wrap them that way regardless.
-- A multi-value head is one rule instance with several head contributions
-  (one body evaluation); otherwise it is the same as separate rules.
-  Distinguish this from one relation with several FD positions (§3),
-  which is a single composite record.
-- `r.order(v.O).subtotal(v == v.S)` at the head yields the same records as
+- A multi-value head (keyword items, informally a *hydra*) is one rule
+  instance with several head contributions to several relations (one
+  body evaluation); otherwise it is the same as separate rules. Each
+  relation has its own slices, deltas and fold. There is no relation
+  with several FD positions (§3).
+- `r.order(v.O).subtotal == v.S` at the head yields the same records as
   `r.order(v.O).subtotal(v.S)` would, plus the contract. The contract has
   three consequences:
   1. **Enforced.** Two rule instances deriving different values for the
@@ -496,7 +536,7 @@ lost.
   slice identity". What survives of it: the FD contract, and the leaf
   mapping's independent `indexed` flag.
 - Cardinality (≤1) sources in v0, computed per (relation, mode):
-  - declared FD position with all earlier positions bound;
+  - declared FD position with all key positions bound;
   - leaf mapping: schema (PK, UNIQUE, FK) plus application-level
     uniqueness declared on the mapping, trusted and checked at read time
     (a ≤1 probe seeing two records raises);
@@ -794,13 +834,13 @@ Example, unbound slice `-C -X` of `city.country`:
 ```python
 # A: dedup elided
 r += (r.city(v.C).country(v.X)) <= (
-    r.city(v.C).region(v == v.R),
-    r.region(v.R).country(v == v.X),
+    r.city(v.C).region == v.R,
+    r.region(v.R).country == v.X,
 )
 # B: dedup needed
 r += (r.city(v.C).country(v.X)) <= (
     r.city(v.C).region(v.R),
-    r.region(v.R).country(v == v.X),
+    r.region(v.R).country == v.X,
 )
 ```
 
@@ -1115,7 +1155,7 @@ r += (r.person(v.P).needs_wellfare) <= (
         v.Amount > v.Min,
     ),
 )
-r += (r.person(v.P).income_source(v == "welfare")) <= (
+r += (r.person(v.P).income_source("welfare")) <= (
     r.person(v.P).needs_wellfare,
 )
 ```
@@ -1748,6 +1788,37 @@ Possible refinements of the link graph (ideas, not yet settled):
   consume them (an invalid order gets a mutation) with no special
   support; only the halting of a validation *link* is engine behaviour.
 
+#### Live tests (idea, follows from root goals)
+
+A test is a relation whose records are failures,
+`test.refund_after_cancel.failures == setof(...)`, over fixture data
+given as wave-0 overrides on a shared base. Registered as a root, it
+stays evaluated; no new engine mechanism is involved, a test root is a
+root.
+
+- **Precise test impact for free.** A rule edit dirties exactly the
+  slices depending on it, so exactly the tests whose derivations pass
+  through that rule re-run, incrementally, and only the affected parts:
+  "tests whose data flow touches this rule", not "files importing the
+  module". What test-impact tools approximate with coverage maps, taken
+  from the dependency graph itself.
+- **Failures carry blame.** A failure record is a derived record; "why"
+  walks its nodes: rule instance, inputs, epoch.
+- **Chains are testable without a DB write.** A test runs the link chain
+  in simulation and asserts on the registry or the final-epoch state;
+  nothing is flushed, effects never fire. Fixtures shared between tests
+  alias across their epoch chains: a hundred tests over one base dataset
+  do not hold a hundred copies.
+- **Tests as a gutter.** Pass/fail per test rule updates as you type:
+  live development extended to correctness, not only values.
+- **Knobs are scheduling, not semantics**: which roots are registered
+  (all tests, the current file's, a tag), when they are pulled (every
+  commit, on save, on demand), how much memory live tests may pin (the
+  sweep treats unregistered tests as cache).
+- Bridge to build early: a `pytest` adapter that registers a root goal
+  and asserts it is empty, so tests live in an ordinary suite and are
+  also live in a session.
+
 Open (§14): **leaf coherence across transactions**. After commit the
 epoch-0 slices the registry wrote are known, but records changed by
 other transactions or processes are not, and a request-scoped ORM
@@ -1756,6 +1827,101 @@ transaction boundaries, which throws away the derived cache between
 requests; anything better needs a DB-side change signal or a versioning
 scheme. This decides whether the engine is a per-request computation or
 a long-lived cache.
+
+### Host process, tooling and REPL (settled in outline)
+
+The system wants to be Smalltalk, with one difference in our favour:
+**the image is a cache.** Everything the host holds is derived from the
+database plus the rule files, so it can be killed and restarted at any
+time and rebuilds lazily. No image file, no image-versus-source drift.
+
+**Host.** One long-running process: engine, ORM session, file watcher,
+live loader. The host **is the application process** (e.g. the Flask
+process); the interactive services are an optional extension installed
+only in development (like Werkzeug's debugger), so production runs the
+same code with the extension absent: one process type, one `Engine`
+object embedded in the app.
+
+- **One engine thread.** The engine is single-threaded by design; it
+  gets its own thread with the task queue as inbox. A request handler
+  submits "run this chain, give me the result" and blocks on the
+  future; LSP, debug adapter, inspector and REPL are further clients of
+  the same queue. Nothing touches slices from a request thread. Several
+  gunicorn workers each have their own engine and cache (leaf coherence
+  is then per worker).
+- **Two reloaders do not mix.** The framework's process-restarting
+  reloader is disabled in host mode; DyRel's watcher reloads: rule
+  modules through live loading with state kept (re-execute the module,
+  diff its rule set against the previous one, feed the differences to
+  live loading; opaque actions re-resolved by name), other modules by
+  module reload where safe, process restart for the rest (mapping
+  changes). Restart is cheap because the image is a cache, but it is
+  the exception.
+- **Control channel**: request/response over a socket (JSON-RPC or
+  similar), serialized snapshots, never remote object proxies. `rpyc` is
+  not needed: proxies to live objects would evaluate on the wrong
+  thread, hold the GIL across the wire and leak identity semantics.
+
+**No per-editor plugins.** Three editor-independent surfaces:
+
+- **LSP server**, a thin separate process over the control channel
+  (dies with the editor, host runs headless). Carries what an editor can
+  show: diagnostics as the gutter (undefined relations, definition
+  errors, mode errors, stratification lint, failing tests; the host
+  produces them with source positions on live load, the server forwards
+  per file), hover (value of the relation under the cursor for a chosen
+  key), code lenses (test status, record counts), inlay hints (inferred
+  modes, ≤1), go-to-definition (relation to its rules), find-references
+  (consumers). `pygls`; diagnostics in ~100 lines, each feature one
+  handler. Runs **side by side with the Python LSP server** (`ty`):
+  clients attach several servers per file type and merge results tagged
+  by source. The DyRel server never answers Python questions. A `.pyi`
+  stub giving the `v`/`r` namespaces a `__getattr__` keeps the type
+  checker quiet and makes the objects typed. Sublime/Neovim: a config
+  entry; VS Code: a minimal launcher extension; PyCharm: its LSP API,
+  reduced feature set.
+- **Debug adapter (DAP)** for derivation inspection, where LSP is the
+  wrong shape: a stack frame per node on the path from the rule
+  instance root to the record, with the plan step's source position;
+  variables = the node's `args` by `step.varnames`, input records
+  expandable; step in/out = child/parent node; threads = roots or
+  epochs; a breakpoint on a rule line = "stop when this rule instance
+  derives or retracts" (honoured at the contribution site); evaluate =
+  a query at the node's env. Sublime Debugger, nvim-dap, VS Code;
+  PyCharm stays on the inspector.
+- **Web inspector** served by the host for tables and graphs: relations,
+  slices, records, why-chains as trees, epochs and mutation lists side
+  by side, test results. Bridge from the editor: an LSP code lens or
+  command that opens the inspector at the record's URL. An
+  editor-specific plugin is only ever an optional convenience.
+
+**REPL.**
+
+- **Evaluator on the engine thread**: a persistent namespace per REPL
+  session prepopulated with `r`, `v`, the engine, the ORM session. Each
+  submission is `compile(src, "<repl>", "single")` (bare expressions
+  print), executed via the task queue on the engine thread, stdout and
+  stderr captured, result serialized. The **displayhook** carries the
+  DyRel behaviour: a goal as result is run as a query and rendered as a
+  table, a facade prints its value, a slice its records, an exception
+  prints with the generated-line-to-goal map applied. `r += ...` at the
+  REPL registers into a `<repl>` module that live loading treats like
+  any other: define and redefine rules interactively, definition errors
+  inline. The same evaluator serves the debug adapter's evaluate and
+  the inspector's query box.
+- **Client**: `dyrel repl` on `prompt_toolkit`; `codeop.compile_command`
+  locally to detect complete input; source over the control channel;
+  completion from the session namespace plus relation signatures and
+  segment names.
+- **Jupyter, second**: a wrapper kernel (`ipykernel.kernelbase.Kernel`
+  subclass, `do_execute` forwarding to the host, ~100 lines) gives
+  notebooks and rich consoles in VS Code, PyCharm, Neovim; tables as
+  HTML.
+- Not this: `code.InteractiveConsole` on a socket thread, or `rpyc`
+  classic mode: wrong thread, no goal context, no displayhook.
+
+CLI shape: `dyrel host`, `dyrel repl`, `dyrel lsp`, `dyrel dap`,
+`dyrel test`, `dyrel query '<goal>'`.
 
 ---
 
@@ -1768,42 +1934,45 @@ pointlessly). A later static "pure relation ⇒ plain tabled mode" may
 exist. Documentation should motivate with an ORM-backed example.
 
 ```python
-r += (r.fib(0) == 0)
-r += (r.fib(1) == 1)
-r += (r.fib(v.N) == v.Result) <= (
+r += (r.fib(0).value == 0)
+r += (r.fib(1).value == 1)
+r += (r.fib(v.N).value == v.Result) <= (
     v.N > 1,
     v.N - 1 == v.N1,
     v.N - 2 == v.N2,
-    r.fib(v.N1) == v.A,
-    r.fib(v.N2) == v.B,
+    r.fib(v.N1).value == v.A,
+    r.fib(v.N2).value == v.B,
     v.A + v.B == v.Result,
 )
 ```
 
 ```python
 # head: key Order, FD position subtotal
-r += (r.order(v.Order).subtotal(v == v.Amount)) <= (...)
+r += (r.order(v.Order).subtotal == v.Amount) <= (...)
 # body read, asserting the FD
-r.order(v.Order).subtotal(v == v.Amount)
+r.order(v.Order).subtotal == v.Amount
 # body read, asserting nothing
 r.order(v.Order).subtotal(v.Amount)
-# FD position in the middle: keys Prod and Date, FD position Price
-r += (r.product(v.Prod).costs(v == v.Price).at(v.Date)) <= (...)
-r.product(v.Prod).costs(v == v.Cost).at(v.Date)               # body
-# two keys plus an anonymous FD position
-r += (r.order(v.Order).completed_on(v.Day) == v.Time) <= (...)
+# two keys, one FD position
+r += (r.product(v.Prod).at(v.Date).costs == v.Price) <= (...)
+r.product(v.Prod).at(v.Date).costs == v.Cost                  # body
+# value struct in the FD position, built in the body
+r += (r.route(v.Rt).endpoints == v.E) <= (
+    ...,
+    v.E == Endpoints(from_=v.F, to_=v.T),
+)
 ```
 
 ```python
 r += (r.city(v.C).country(v.X)) <= (
     r.city(v.C).region(v.R),
-    r.region(v.R).country(v == v.X),
+    r.region(v.R).country == v.X,
 )
 ```
 
-Three sentences for users: every segment with an argument is a position;
-any position may be marked `v ==` as determined by the unmarked ones; a
-bare trailing segment is only a name.
+Three sentences for users: every segment with an argument is a key
+position; a bare trailing segment filled with `== X` is the value; any
+other bare segment is only a name.
 
 ---
 
@@ -1822,6 +1991,19 @@ bare trailing segment is only a name.
 ## 14. Open items
 
 - Zero-key relations with an FD position (constants with a value).
+- Objects with identity: a handle standing for the relations under a
+  prefix with a fixed key (the facade of §11 as a value), families of
+  handles declared over prefixes (`o.Name += r.order(v.O).insurance`),
+  and late-bound reads through a handle (`r[v.I].net`). Discussed at
+  length. Attribute-level reactivity needs none of it (keyed slices
+  already give it); the handle is only needed to pass "the group" around
+  without naming its prefix. A late-bound goal with free positions
+  cannot be placed by the planner without knowing the relation, so any
+  version needs a declared family or per-prefix planning at first
+  demand. Deferred; value structs (§3) are the v0 answer to compound
+  data.
+- Whether a value-struct construction may appear inline on the RHS of
+  `sig ==` instead of via a separate expression goal.
 - Whether `unique(...)` declarations return as an escape hatch beyond the
   head `==`.
 - Record-group storage strategy (later).
@@ -1845,8 +2027,10 @@ bare trailing segment is only a name.
 | predicate | relation |
 | adornment | mode |
 | atom (body) | subgoal / relation application |
-| `p(K...) -> V`, `>>`, `out(...)` | `v == V` marker / keyword form |
-| trailing `== V` as the only FD spelling | `v == V` on any position |
+| `p(K...) -> V`, `>>`, `out(...)` | `sig == V` / keyword form |
+| `v == V` marker on any position | `sig == V`, trailing bare segment only |
+| anonymous trailing position (`fib(N) == R`) | removed; `fib(N).value == R` |
+| composite record (several FD positions) | multi-value head or value struct |
 | identity cell, trie store | rejected; facade + per-slice storage |
 | Rete/TREAT network, witness GC | superseded by nodes (§8) |
 | row | record |
