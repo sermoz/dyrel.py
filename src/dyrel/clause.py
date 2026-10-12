@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING, Optional
 
-from dyrel.defs import WILDCARD
 from dyrel.util import Slotted_Class
+from dyrel.defs import WILDCARD
 from dyrel.variable import Variable
 from dyrel.phrase import phrase_words
 
@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 class Clause:
     relation: "Relation"
-    head_args: list["Arg"]
+    head_args: list["Arg"  ]
     body: list["Goal"]
 
     def __init__(self, head_record, body):
