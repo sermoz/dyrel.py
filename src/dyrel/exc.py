@@ -1,0 +1,2 @@
+class DyrelError(Exception):
+	pass

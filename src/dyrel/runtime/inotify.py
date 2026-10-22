@@ -3,14 +3,13 @@ from __future__ import annotations
 import ctypes
 import enum
 import os
+from dataclasses import dataclass
 from struct import Struct
-
-from dyrel import util
 
 libc = ctypes.CDLL("libc.so.6", use_errno=True)
 
 
-def error_handler(result, func, arguments):
+def _check_error(result, func, arguments):
     if result == -1:
         err = ctypes.get_errno()
         raise OSError(err, os.strerror(err))
@@ -18,15 +17,21 @@ def error_handler(result, func, arguments):
     return result
 
 
-libc.inotify_init1.errcheck = error_handler
-libc.inotify_add_watch.errcheck = error_handler
-libc.inotify_rm_watch.errcheck = error_handler
+libc.inotify_init1.argtypes = [ctypes.c_int]
+libc.inotify_init1.restype = ctypes.c_int
+libc.inotify_init1.errcheck = _check_error
+
+libc.inotify_add_watch.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_uint32]
+libc.inotify_add_watch.restype = ctypes.c_int
+libc.inotify_add_watch.errcheck = _check_error
+
+libc.inotify_rm_watch.argtypes = [ctypes.c_int, ctypes.c_int]
+libc.inotify_rm_watch.restype = ctypes.c_int
+libc.inotify_rm_watch.errcheck = _check_error
 
 
 class Inotify:
     fd: int
-
-    __slots__ = tuple(__annotations__)
 
     def __init__(self):
         self.fd = libc.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
@@ -35,10 +40,10 @@ class Inotify:
         os.close(self.fd)
         self.fd = None
 
-    def add_watch(self, path, mask) -> int:
+    def add_watch(self, path: str, mask: Mask) -> int:
         return libc.inotify_add_watch(self.fd, os.fsencode(path), mask)
 
-    def remove_watch(self, wd):
+    def remove_watch(self, wd: int):
         libc.inotify_rm_watch(self.fd, wd)
 
 
@@ -77,17 +82,12 @@ class Mask(enum.IntFlag):
     ISDIR = 0x40000000
 
 
+@dataclass(eq=False, frozen=True, slots=True)
 class Event:
     wd: int
     mask: Mask
     cookie: int
     name: str
-
-    __slots__ = tuple(__annotations__)
-    __init__ = util.keyword_initializer_for(__slots__)
-
-    def __repr__(self):
-        return f"#<wd={self.wd}, mask={repr(self.mask)}, cookie={self.cookie}, name=\"{self.name}\">"
 
 
 EVENT_FORMAT = Struct('iIII')

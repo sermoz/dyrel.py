@@ -6,12 +6,12 @@ readme = "README.md"
 authors = [
     { name = "Serhii Mozghovyi", email = "egnartsms@gmail.com" }
 ]
-requires-python = ">=3.14"
+requires-python = ">=3.11"
 dependencies = [
 ]
 
 [project.scripts]
-dyrel-runtime = "dyrel.runtime.host:main"
+dy-load = "dyrel.load:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -34,21 +34,15 @@ addopts = [
 [tool.ruff]
 line-length = 90
 indent-width = 4
-target-version = "py313"
+target-version = "py311"
 format.quote-style = "double"
 
 [tool.ruff.lint]
 isort.combine-as-imports = true
+isort.force-single-line = true
 ignore = [
-    "SIM108",  # Prefer if-else instead of ternary for readability.
-]
-select = [
-    "F",    # Pyflakes; likely errors: https://docs.astral.sh/ruff/rules/#pyflakes-f
-    # "PL",      # Pylint: https://docs.astral.sh/ruff/rules/#pylint-pl
-    "I",    # Sort imports: https://docs.astral.sh/ruff/rules/#isort-i
-    "SIM",  # Simplify code: https://docs.astral.sh/ruff/rules/#flake8-simplify-sim
-    "TC",   # Organize type-checking imports: https://docs.astral.sh/ruff/rules/#flake8-type-checking-tc
-    "UP",   # Upgrade to modern Python syntax: https://docs.astral.sh/ruff/rules/#pyupgrade-up
+    "BLE001",  # catch Exception:
+    "S102",  # Use of 'exec' detected
 ]
 
 [tool.hatch.build.targets.sdist]
