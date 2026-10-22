@@ -7,10 +7,10 @@ from pathlib import Path
 
 
 def load_dir(dir):
-    source_files: dict[Path, Source_File] = {}
+    source_files: dict[Path, SourceFile] = {}
 
     for py_path in Path(dir).glob("*.py"):
-        source_file = Source_File(path=py_path, state=Source_File_State.ok)
+        source_file = SourceFile(path=py_path, state=SourceFileState.OK)
         source_files[str(py_path)] = source_file
 
         try:
@@ -18,29 +18,30 @@ def load_dir(dir):
         except Exception:
             # print(f"Compilation error in {file}:\n{e}\n")
             traceback.print_exc()
-            source_file.state = Source_File_State.failed_to_compile
+            source_file.state = SourceFileState.FAILED_TO_COMPILE
+
             continue
 
         try:
             exec(code)
         except Exception:
             traceback.print_exc()
-            source_file.state = Source_File_State.raised_at_exec
+            source_file.state = SourceFileState.RAISED_AT_EXEC
             continue
 
     return source_files
 
 
 @dataclass(eq=False, slots=True)
-class Source_File:
+class SourceFile:
     path: Path
-    state: Source_File_State
+    state: SourceFileState
 
 
-class Source_File_State(enum.Enum):
-    failed_to_compile = enum.auto()
-    raised_at_exec = enum.auto()
-    ok = enum.auto()
+class SourceFileState(enum.Enum):
+    FAILED_TO_COMPILE = enum.auto()
+    RAISED_AT_EXEC = enum.auto()
+    OK = enum.auto()
 
 
 def main():

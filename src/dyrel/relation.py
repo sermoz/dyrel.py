@@ -1,19 +1,20 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from dataclasses import field
 from typing import Any
 from typing import ClassVar
 
 from .exc import DyrelError
 
 
-class R_Object:
+class RObject:
     is_link_root: ClassVar[bool] = True
 
     def __getattr__(self, name):
-        return Rel_App_Link(prev=self, name=name)
+        return RelAppLink(prev=self, name=name)
 
-    def __iadd__(self, chain: Rel_App_Link):
+    def __iadd__(self, chain: RelAppLink):
         signature = chain_signature(chain)
         relation = relation_registry.get(signature)
 
@@ -30,8 +31,8 @@ class R_Object:
 
 
 @dataclass(eq=False, frozen=True, slots=True)
-class Rel_App_Link:
-    _prev: Rel_App_Link | R_Object
+class RelAppLink:
+    _prev: RelAppLink | RObject
     _name: str
     _arg: Val | None = None
 
@@ -43,13 +44,13 @@ class Rel_App_Link:
         object.__setattr__(self, "_arg", arg)
 
     def __getattr__(self, name):
-        return Rel_App_Link(self, name)
+        return RelAppLink(self, name)
 
     def __call__(self, val):
         if self._arg is not None:
             raise DyrelError("Ill-formed relation application (a call following another call)")
 
-        return Rel_App_Link(prev=self._prev, name=self._name, arg=Val(val))
+        return RelAppLink(prev=self._prev, name=self._name, arg=Val(val))
 
 
 @dataclass(eq=False, frozen=True, slots=True)
@@ -57,7 +58,7 @@ class Val:
     val: Any
 
 
-def chain_signature(chain: Rel_App_Link) -> str:
+def chain_signature(chain: RelAppLink) -> str:
     """Get relation signature (a string) corresponding to the given chain"""
     assert not chain.is_link_root
 
@@ -73,7 +74,7 @@ def chain_signature(chain: Rel_App_Link) -> str:
     return "".join(parts)
 
 
-def chain_arity(chain: Rel_App_Link) -> int:
+def chain_arity(chain: RelAppLink) -> int:
     arity = 0
     link = chain
 
@@ -84,7 +85,7 @@ def chain_arity(chain: Rel_App_Link) -> int:
     return arity
 
 
-def chain_values(chain: Rel_App_Link) -> tuple:
+def chain_values(chain: RelAppLink) -> tuple:
     values = []
     link = chain
 
@@ -104,4 +105,3 @@ class Relation:
     signature: str
     arity: int
     facts: list[tuple] = field(default_factory=list)
-

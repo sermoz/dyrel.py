@@ -1,3 +1,3 @@
-from .relation import R_Object
+from .relation import RObject
 
-r = R_Object()
+r = RObject()
