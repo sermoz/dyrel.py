@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import ctypes
 import enum
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass
 from struct import Struct
 
@@ -30,21 +32,39 @@ libc.inotify_rm_watch.restype = ctypes.c_int
 libc.inotify_rm_watch.errcheck = _check_error
 
 
+@dataclass(eq=False, slots=True)
 class Inotify:
     fd: int
+    queue: asyncio.Queue
 
     def __init__(self):
         self.fd = libc.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
+        self.queue = asyncio.Queue()
+        asyncio.get_running_loop().add_reader(self.fd, self._on_readable)
 
     def close(self):
+        asyncio.get_running_loop().remove_reader(self.fd)
         os.close(self.fd)
-        self.fd = None
+        self.fd = -1
 
     def add_watch(self, path: str, mask: Mask) -> int:
         return libc.inotify_add_watch(self.fd, os.fsencode(path), mask)
 
     def remove_watch(self, wd: int):
         libc.inotify_rm_watch(self.fd, wd)
+
+    def _on_readable(self):
+        try:
+            buffer = os.read(self.fd, 1 << 12)  # the number doesn't really matter
+        except BlockingIOError:
+            return
+
+        for event in unpack_events(buffer):
+            self.queue.put_nowait(event)
+
+    async def events(self):
+        while True:
+            yield await self.queue.get()
 
 
 class Mask(enum.IntFlag):
@@ -93,10 +113,9 @@ class Event:
 EVENT_FORMAT = Struct('iIII')
 
 
-def unpack_events(data: bytes) -> list[Event]:
+def unpack_events(data: bytes) -> Iterator[Event]:
     """Unpack any number of events from the given bytes object"""
     pos = 0
-    events = []
 
     while pos < len(data):
         wd, mask, cookie, namesize = EVENT_FORMAT.unpack_from(data, pos)
@@ -106,6 +125,4 @@ def unpack_events(data: bytes) -> list[Event]:
         name = os.fsdecode(data[pos:end])
         pos += namesize
 
-        events.append(Event(wd=wd, mask=Mask(mask), cookie=cookie, name=name))
-
-    return events
+        yield Event(wd=wd, mask=Mask(mask), cookie=cookie, name=name)

@@ -10,7 +10,7 @@ def load_dir(dir):
     source_files: dict[Path, Source_File] = {}
 
     for py_path in Path(dir).glob("*.py"):
-        source_file = Source_File(path=py_path, state=Source_File_State.Ok)
+        source_file = Source_File(path=py_path, state=Source_File_State.ok)
         source_files[str(py_path)] = source_file
 
         try:
@@ -18,14 +18,14 @@ def load_dir(dir):
         except Exception:
             # print(f"Compilation error in {file}:\n{e}\n")
             traceback.print_exc()
-            source_file.state = Source_File_State.Failed_To_Compile
+            source_file.state = Source_File_State.failed_to_compile
             continue
 
         try:
             exec(code)
         except Exception:
             traceback.print_exc()
-            source_file.state = Source_File_State.Raised_At_Exec
+            source_file.state = Source_File_State.raised_at_exec
             continue
 
     return source_files
@@ -38,9 +38,9 @@ class Source_File:
 
 
 class Source_File_State(enum.Enum):
-    Failed_To_Compile = enum.auto()
-    Raised_At_Exec = enum.auto()
-    Ok = enum.auto()
+    failed_to_compile = enum.auto()
+    raised_at_exec = enum.auto()
+    ok = enum.auto()
 
 
 def main():

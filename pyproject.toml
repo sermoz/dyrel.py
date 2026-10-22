@@ -11,7 +11,8 @@ dependencies = [
 ]
 
 [project.scripts]
-dy-load = "dyrel.load:main"
+load = "dyrel.load:main"
+watch = "dyrel.host:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -22,6 +23,7 @@ dev = [
     "ipython>=9.17.1",
     "pytest>=9.1.1",
     "ruff>=0.16.10",
+    "ty>=0.0.90",
 ]
 
 [tool.pytest]
