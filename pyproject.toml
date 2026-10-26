@@ -12,7 +12,7 @@ dependencies = [
 
 [project.scripts]
 load = "dyrel.load:main"
-watch = "dyrel.host:main"
+run = "dyrel.host.engine:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -41,10 +41,14 @@ format.quote-style = "double"
 
 [tool.ruff.lint]
 isort.combine-as-imports = true
-isort.force-single-line = true
+# isort.force-single-line = true
 ignore = [
     "BLE001",  # catch Exception:
-    "S102",  # Use of 'exec' detected
+    "S102",    # Use of 'exec' detected
+    "RUF023",  # __slots__ is not sorted
+]
+extend-select = [
+    "PLE0237"
 ]
 
 [tool.hatch.build.targets.sdist]

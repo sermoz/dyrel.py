@@ -32,30 +32,42 @@ libc.inotify_rm_watch.restype = ctypes.c_int
 libc.inotify_rm_watch.errcheck = _check_error
 
 
-@dataclass(eq=False, slots=True)
 class Inotify:
     fd: int
     queue: asyncio.Queue
+    watches: list[int]
 
     def __init__(self):
         self.fd = libc.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
         self.queue = asyncio.Queue()
+        self.watches = []
+
         asyncio.get_running_loop().add_reader(self.fd, self._on_readable)
 
-    def close(self):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
         asyncio.get_running_loop().remove_reader(self.fd)
+
+        while self.watches:
+            wd = self.watches.pop()
+            libc.inotify_rm_watch(self.fd, wd)
+
         os.close(self.fd)
         self.fd = -1
 
-    def add_watch(self, path: str, mask: Mask) -> int:
-        return libc.inotify_add_watch(self.fd, os.fsencode(path), mask)
+        return False
 
-    def remove_watch(self, wd: int):
-        libc.inotify_rm_watch(self.fd, wd)
+    def add_watch(self, path: str, mask: Mask):
+        wd: int = libc.inotify_add_watch(self.fd, os.fsencode(path), mask)
+        self.watches.append(wd)
 
     def _on_readable(self):
         try:
-            buffer = os.read(self.fd, 1 << 12)  # the number doesn't really matter
+            # The number of bytes doesn't really matter as long as at least 1 inotify
+            # event fits in it (~ 272 bytes).
+            buffer = os.read(self.fd, 1 << 12)
         except BlockingIOError:
             return
 

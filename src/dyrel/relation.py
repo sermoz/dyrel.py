@@ -15,6 +15,12 @@ class RObject:
         return RelAppLink(prev=self, name=name)
 
     def __iadd__(self, chain: RelAppLink):
+        from dyrel.loader import facts_being_loaded
+
+        if facts_being_loaded is None:
+            raise DyrelError("'r += ...' in a context where it's not expected")
+
+
         signature = chain_signature(chain)
         relation = relation_registry.get(signature)
 
@@ -24,8 +30,8 @@ class RObject:
                 arity=chain_arity(chain),
             )
 
-        values = chain_values(chain)
-        relation.facts.append(values)
+        record = chain_values(chain)
+        facts_being_loaded.append(Fact(rel=relation, rec=record))
 
         return self
 
@@ -97,11 +103,17 @@ def chain_values(chain: RelAppLink) -> tuple:
     return tuple(values[::-1])
 
 
+@dataclass(eq=True, frozen=True, slots=True)
+class Fact:
+    rel: Relation
+    rec: tuple
+
+
 relation_registry: dict[str, Relation] = {}
 
 
-@dataclass(eq=False, frozen=False, slots=True)
+@dataclass(eq=False, repr=False, slots=True)
 class Relation:
     signature: str
     arity: int
-    facts: list[tuple] = field(default_factory=list)
+    records: list[tuple] = field(default_factory=list)
