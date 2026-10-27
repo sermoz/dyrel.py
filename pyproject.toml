@@ -11,7 +11,6 @@ dependencies = [
 ]
 
 [project.scripts]
-load = "dyrel.load:main"
 run = "dyrel.host.engine:main"
 
 [build-system]

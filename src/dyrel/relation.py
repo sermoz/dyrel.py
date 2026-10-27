@@ -116,4 +116,7 @@ relation_registry: dict[str, Relation] = {}
 class Relation:
     signature: str
     arity: int
-    records: list[tuple] = field(default_factory=list)
+    records: set[tuple] = field(default_factory=set)
+
+    def __repr__(self):
+        return f'#<{self.signature}>'

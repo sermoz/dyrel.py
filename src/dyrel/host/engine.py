@@ -6,10 +6,16 @@ from pathlib import Path
 from typing import ClassVar
 
 from .inotify import Inotify, Mask
+from dyrel.loader import reconsider_file, reload_dir, source_file_registry
 
 
 @dataclass(eq=False, repr=False, slots=True)
-class Debouncer:
+class DirtyFileDebouncer:
+    """A debouncer for source file-related FS events.
+
+    Accumulates a set of dirty file paths.
+    """
+
     MAX_WAIT: ClassVar[float] = 2.0   # wait no more than that after the first change
     QUIET: ClassVar[float] = 0.5      # if no changes during that long, issue a reload
 
@@ -52,7 +58,7 @@ class Debouncer:
         return dirty
 
 
-async def watch_source_files(debouncer):
+async def watch_source_files(debouncer: DirtyFileDebouncer):
     with Inotify() as inotify:
         inotify.add_watch("sample", Mask.MODIFY)
 
@@ -60,21 +66,47 @@ async def watch_source_files(debouncer):
             debouncer.mark_dirty(Path("sample") / event.name)
 
 
-async def keep_engine_up_to_date(debouncer):
+async def reload_source_files(debouncer: DirtyFileDebouncer):
     while True:
         dirty_files = await debouncer.get_dirty_files()
 
-        # You stopped here: implement file comparison and reloading
-        print("Got these dirty files:", dirty_files)
+        for path in dirty_files:
+            print(f'Reconsidering file: "{path}"')
+            affected_rels = reconsider_file(path)
+            if affected_rels:
+                print(f'Affected rels: {affected_rels}')
+            file = source_file_registry[path]
+            print(f'File "{path}": state {file.state}, #facts: {len(file.facts)}')
 
 
 async def run():
-    debouncer = Debouncer()
+    debouncer = DirtyFileDebouncer()
 
     async with asyncio.TaskGroup() as group:
         group.create_task(watch_source_files(debouncer))
-        group.create_task(keep_engine_up_to_date(debouncer))
+        group.create_task(reload_source_files(debouncer))
+
+        print("Listening for source file changes..")
 
 
 def main():
+    reload_dir(Path("sample"))
     asyncio.run(run())
+
+
+# def main():
+#     source_files = load_dir("sample")
+
+#     print(f"Loaded {len(source_files)} files:")
+
+#     for path in source_files:
+#         print(path)
+
+#     import IPython
+
+#     from dyrel.relation import relation_registry
+
+#     IPython.embed(colors="neutral", user_ns={
+#         "source_files": source_files,
+#         "reg": relation_registry
+#     })
