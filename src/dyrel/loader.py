@@ -1,113 +1,235 @@
 from __future__ import annotations
+import itertools
 
 import enum
 import hashlib
 import traceback
-from dataclasses import dataclass
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import ClassVar, TypeAlias
 
-from .relation import Fact, Relation
+from dyrel.relation import Record, RelApp, Relation
+from dyrel import util
 
-source_file_registry: dict[Path, SourceFile] = {}
+SOURCE_FILE_REGISTRY: dict[Path, SourceFile] = {}
+QUERIES_BY_FILE: dict[SourceFile, set[Query]] = {}
 
 
 @dataclass(eq=False, repr=False, slots=True)
 class SourceFile:
     path: Path
-    state: SourceFileState
     digest: bytes
-    # do we need this? timestamp: int  # corresponds to os.stat_result.st_mtime_ns
-    facts: set[Fact] | None = None
+    state: SourceFileState
+    facts: RecordSupportMap | None = None
+
+
+RecordSupportMap: TypeAlias = defaultdict[Relation, Counter[Record]]
 
 
 class SourceFileState(enum.Enum):
     FAILED_TO_COMPILE = enum.auto()
-    RAISED_AT_EXEC = enum.auto()
+    FAILED_TO_RUN = enum.auto()
     OK = enum.auto()
+
+
+@dataclass(eq=True, frozen=True, slots=True)
+class Query:
+    name: str
+    rel_app: RelApp
 
 
 def reload_dir(dir: Path):
     """(Re)load all the directory's *.py files"""
-    total_affected_rels = set()
+    change = Change()
 
     for path in dir.glob("*.py"):
-        affected_rels = reconsider_file(path)
+        reload_file(change, path)
 
-        if affected_rels is not None:
-            print(f'File "{path}": affected {len(affected_rels)} relations')
-            total_affected_rels |= affected_rels
+    # change.apply_delta_facts()
+    apply_and_report_change(change)
 
-    print(f'Dir "{dir}" reload: affected {len(total_affected_rels)} relations')
+    total_support = sum(delta.total() for delta in change.delta_facts.values())
+    print(f'Dir "{dir}" reload: loaded {total_support} facts for {len(change.delta_facts)} relations')
 
 
-def reconsider_file(path: Path) -> set[Relation] | None:
+def reload_file(change: Change, path: Path):
+    """Reload the file given by 'path' and contribute to 'change'.
+
+    Global data structures are updated eagerly. Changes in records (added/removed) are
+    accumulated in 'change' and not updated here.
+    """
     file_contents = path.read_bytes()
     digest = hashlib.blake2b(file_contents, digest_size=32).digest()
 
-    source_file = source_file_registry.get(path)
+    source_file = SOURCE_FILE_REGISTRY.get(path)
 
+    # Did the file changed?
     if source_file is not None and source_file.digest == digest:
         return
 
-    # Need to load
-    state, facts = load_file(path, file_contents)
+    result = load_file(path, file_contents)
 
     if source_file is None:
-        source_file_registry[path] = SourceFile(
+        source_file = SOURCE_FILE_REGISTRY[path] = SourceFile(
             path=path,
-            state=state,
             digest=digest,
-            facts=facts,
+            state=SourceFileState.OK,  # just to init
+            facts=None,
         )
-        for fact in facts:
-            fact.rel.records.add(fact.rec)
-        return {fact.rel for fact in facts}
 
-    # Be sure not to remove the old facts if the file is broken.
-    source_file.state = state
+    source_file.state = result.state
     source_file.digest = digest
 
-    if state != SourceFileState.OK:
-        # If the file becomes broken, all the ghost facts are preserved.
-        print(f'File "{path}" broke: {state}')
+    # Be sure not to remove the old facts if the file is broken.
+    if not isinstance(result, LoadSuccess):
         return
 
-    # Compare old and new facts
-    old_facts = source_file.facts or set()
+    change.update(
+        old_facts=source_file.facts,
+        new_facts=result.facts,
+        new_queries=result.queries - QUERIES_BY_FILE.get(source_file, set())
+    )
 
-    to_add = facts - old_facts
-    to_rem = old_facts - facts
+    if result.queries:
+        QUERIES_BY_FILE[source_file] = result.queries
+    else:
+        QUERIES_BY_FILE.pop(source_file, None)
 
-    for fact in to_rem:
-        fact.rel.records.remove(fact.rec)
-    for fact in to_add:
-        fact.rel.records.add(fact.rec)
-
-    source_file.facts = facts
-
-    return {fact.rel for fact in to_add | to_rem}
+    source_file.facts = result.facts
 
 
-facts_being_loaded: list[Fact] | None = None
+@dataclass(eq=False, frozen=True, slots=True)
+class LoadSuccess:
+    state: ClassVar = SourceFileState.OK
+
+    facts: RecordSupportMap
+    queries: set[Query]
 
 
-def load_file(path: Path, file_contents: bytes) -> tuple[SourceFileState, set[Fact] | None]:
+@dataclass(eq=False, frozen=True, slots=True)
+class LoadFailure:
+    # On load failure, 'facts' of a module don't exist
+    facts: ClassVar = None
+
+    state: SourceFileState
+
+
+LoadResult: TypeAlias = LoadSuccess | LoadFailure
+
+
+# Global variable that are non-None only during a source file load. At all other times,
+# they both are None.
+cur_file_facts: RecordSupportMap | None = None
+cur_file_queries: set[Query] | None = None
+
+
+def load_file(path: Path, file_contents: bytes) -> LoadResult:
     try:
         code_obj = compile(file_contents, filename=f"dyrel::{path}", mode="exec")
     except Exception:
-        # print(f"Compilation error in {path}:\n{e}\n")
         traceback.print_exc()
-        return SourceFileState.FAILED_TO_COMPILE, None
+        return LoadFailure(SourceFileState.FAILED_TO_COMPILE)
 
-    global facts_being_loaded
-    facts_being_loaded = []
+    global cur_file_facts, cur_file_queries
+
+    cur_file_facts = defaultdict(Counter)
+    cur_file_queries = set()
 
     try:
         exec(code_obj)
     except Exception:
         traceback.print_exc()
-        return SourceFileState.RAISED_AT_EXEC, None
+        return LoadFailure(SourceFileState.FAILED_TO_RUN)
     else:
-        return SourceFileState.OK, set(facts_being_loaded)
+        return LoadSuccess(facts=cur_file_facts, queries=cur_file_queries)
     finally:
-        facts_being_loaded = None
+        cur_file_facts = None
+        cur_file_queries = None
+
+
+@dataclass(eq=False, slots=True)
+class Change:
+    delta_facts: RecordSupportMap = field(default_factory=lambda: defaultdict(Counter), init=False)
+    new_queries: set[Query] = field(default_factory=set, init=False)
+
+    def update(self, old_facts: RecordSupportMap | None, new_facts: RecordSupportMap, new_queries: set[Query]):
+        if old_facts:
+            for rel in old_facts:
+                self.delta_facts[rel].subtract(old_facts[rel])
+
+        for rel in new_facts:
+            self.delta_facts[rel].update(new_facts[rel])
+
+        self.new_queries.update(new_queries)
+
+    def normalize(self):
+        """Throw away all the net 0 entries from 'facts' counters."""
+        to_del = []
+
+        for rel, delta in self.delta_facts.items():
+            for rec in [rec for rec, d in delta.items() if d == 0]:
+                del delta[rec]
+
+            if not delta:
+                to_del.append(rel)
+
+        for rel in to_del:
+            del self.delta_facts[rel]
+
+    def apply_delta_facts(self):
+        for rel, delta in self.delta_facts.items():
+            rel.records += delta
+
+
+def apply_and_report_change(change: Change):
+    change.normalize()
+
+    existed_queries_by_rel = util.group_by(
+        {query for queries in QUERIES_BY_FILE.values() for query in queries} - change.new_queries,
+        key=lambda query: query.rel_app.rel
+    )
+
+    for rel, delta in change.delta_facts.items():
+        if rel not in existed_queries_by_rel:
+            continue
+
+        added, removed = compute_added_removed_records(rel, delta)
+
+        for query in existed_queries_by_rel[rel]:
+            q_added = {rec for rec in added if query.rel_app.is_satisfied_by_record(rec)}
+            q_removed = {rec for rec in removed if query.rel_app.is_satisfied_by_record(rec)}
+
+            if not q_added and not q_removed:
+                continue
+
+            print(f'Query "{query.name}":')
+
+            for rec in q_added:
+                print(f'  +{rec}')
+
+            for rec in q_removed:
+                print(f'  -{rec}')
+
+    change.apply_delta_facts()
+
+    # Process the "new queries" separately: they need all the records, not just delta
+    new_queries_by_rel = util.group_by(
+        change.new_queries, key=lambda query: query.rel_app.rel
+    )
+
+    for rel, queries in new_queries_by_rel.items():
+        for query in queries:
+            print(f'New query "{query.name}":')
+
+            for rec in rel.records:
+                if query.rel_app.is_satisfied_by_record(rec):
+                    print(f'  {rec}')
+
+
+def compute_added_removed_records(rel: Relation, delta: Counter[Record]) -> tuple[set[Record], set[Record]]:
+    # `rec not in rel.records` implies that `delta[rec] > 0`
+    added = {rec for rec in delta if rec not in rel.records}
+    removed = {rec for rec in delta if delta[rec] == -rel.records[rec]}
+
+    return added, removed

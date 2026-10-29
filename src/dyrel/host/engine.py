@@ -5,8 +5,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 
+from dyrel.loader import Change, apply_and_report_change, reload_dir, reload_file
+
 from .inotify import Inotify, Mask
-from dyrel.loader import reconsider_file, reload_dir, source_file_registry
 
 
 @dataclass(eq=False, repr=False, slots=True)
@@ -70,13 +71,13 @@ async def reload_source_files(debouncer: DirtyFileDebouncer):
     while True:
         dirty_files = await debouncer.get_dirty_files()
 
+        change = Change()
+
         for path in dirty_files:
-            print(f'Reconsidering file: "{path}"')
-            affected_rels = reconsider_file(path)
-            if affected_rels:
-                print(f'Affected rels: {affected_rels}')
-            file = source_file_registry[path]
-            print(f'File "{path}": state {file.state}, #facts: {len(file.facts)}')
+            print(f'Reloading file: "{path}"')
+            reload_file(change, path)
+            
+        apply_and_report_change(change)
 
 
 async def run():
@@ -91,6 +92,7 @@ async def run():
 
 def main():
     reload_dir(Path("sample"))
+    # return
     asyncio.run(run())
 
 
