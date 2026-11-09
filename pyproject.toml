@@ -8,10 +8,11 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
+    "typing-extensions",
 ]
 
 [project.scripts]
-run = "dyrel.host.engine:main"
+run = "dyrel.host.runner:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -19,10 +20,10 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "ipython>=9.17.1",
-    "pytest>=9.1.1",
-    "ruff>=0.16.10",
-    "ty>=0.0.90",
+    "ipython",
+    "pytest",
+    "ruff",
+    "ty",
 ]
 
 [tool.pytest]
@@ -41,13 +42,17 @@ format.quote-style = "double"
 [tool.ruff.lint]
 isort.combine-as-imports = true
 # isort.force-single-line = true
+flake8-type-checking.strict = true
+future-annotations = true
+extend-select = [
+    "PLE0237",
+    "TC",
+]
 ignore = [
     "BLE001",  # catch Exception:
     "S102",    # Use of 'exec' detected
     "RUF023",  # __slots__ is not sorted
-]
-extend-select = [
-    "PLE0237"
+    "TC003",   # Move standard library import {} into a type-checking block
 ]
 
 [tool.hatch.build.targets.sdist]

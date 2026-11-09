@@ -1,10 +1,7 @@
-from .relation import RObject, VObject, root
+from .dsl import RObject, VObject
+from .loader import query
 
-__all__ = (
-	"r",
-	"root",
-	"v",
-)
+__all__ = ("query", "r", "v")
 
 
 r = RObject()
