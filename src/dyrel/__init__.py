@@ -1,5 +1,5 @@
 from .dsl import RObject, VObject
-from .loader import query
+from .load import query
 
 __all__ = ("query", "r", "v")
 
