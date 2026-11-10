@@ -38,10 +38,10 @@ def _serhii_parents(added, person):
 
 
 @query(r.person("tanya").parent_of(v.child))
-def _tanya_childrenn(added, child):
+def _tanya_children(added, child):
     print(f'{"+" if added else "-"} child of Tanya: "{child}"')
 
 
-@query(r.person(v.parent).parent_of(v.child))
-def _parent_chil(added, parent, child):
-    print(f'{"+" if added else "-"} "{parent}" -> "{child}"')
+# @query(r.person(v.parent).parent_of(v.child))
+# def _parent_chil(added, parent, child):
+#     print(f'{"+" if added else "-"} "{parent}" -> "{child}"')

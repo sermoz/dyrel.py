@@ -54,6 +54,7 @@ ignore = [
     "RUF023",  # __slots__ is not sorted
     "TC003",   # Move standard library import {} into a type-checking block
 ]
+extend-safe-fixes = ["TC"]
 
 [tool.hatch.build.targets.sdist]
 include = [

@@ -4,7 +4,12 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, TypeAlias
 
-from dyrel.slice import Slice, observe_current_version, unchain_version
+from dyrel.slice import (
+    Slice,
+    ensure_slice_filled,
+    observe_current_version,
+    unchain_version,
+)
 
 if TYPE_CHECKING:
     from dyrel.relation import Record
@@ -43,8 +48,8 @@ def process_stale_queries():
     while STALE_QUERIES:
         query: Query = STALE_QUERIES.pop()
 
-        breakpoint()
         if query.version is None:
+            ensure_slice_filled(query.slyce)
             feed_to_query(query, query.slyce.records, added=True)
         else:
             unchain_version(query.version)

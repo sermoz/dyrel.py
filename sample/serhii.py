@@ -8,4 +8,5 @@ r += r.man("kolya")
 
 r += r.person("tanya").parent_of("serhii")
 r += r.person("tanya").parent_of("ira")
+# r += r.person("tanya").parent_of("ryba")
 # r += r.person("yura")

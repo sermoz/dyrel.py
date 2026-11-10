@@ -13,12 +13,17 @@ if TYPE_CHECKING:
     from dyrel.relation import Record, RelApp, Relation
 
 
+# When a slice is created, it's put here. Then it's fully initialized on first use and
+# then kept up-to-date.
+UNFILLED_SLICES: set[Slice] = set()
+
+
 @dataclass(eq=False, repr=False, slots=True)
 class Slice:
     rel: Relation
     mask: SliceMask
     arity: int  # number of 'FREE_ARG's in 'mask'
-    records: Counter[Record]
+    records: Counter[Record]  # None means not yet initialized
     latest_version: Version | None
     valid_consumers: set[Query]  # currently only Queries can depend on slices
     consumers: set[Query]  # temp solution, we really need GC
@@ -32,6 +37,10 @@ class Slice:
         self.valid_consumers = set()
         self.consumers = set()
 
+    @property
+    def is_unfilled(self) -> bool:
+        return self in UNFILLED_SLICES
+
     def consume_by(self, query: Query):
         self.consumers.add(query)
         self.valid_consumers.add(query)
@@ -42,9 +51,6 @@ class Slice:
 
         if not self.consumers:
             self.latest_version = None
-
-    def consumer_invalidated(self, query: Query):
-        self.valid_consumers.remove(query)
 
 
 class SliceMask(tuple):
@@ -71,6 +77,7 @@ def slice_for_mask(rel: Relation, mask: SliceMask) -> Slice:
     """Intern the slice and return it."""
     if (slyce := rel.slices.get(mask)) is None:
         slyce = rel.slices[mask] = Slice(rel, mask)
+        UNFILLED_SLICES.add(slyce)
 
     return slyce
 
@@ -81,6 +88,20 @@ def slice_for_rel_app(app: RelApp) -> Slice:
     Ignore var duplicates: all vars are treated as wildcards, independent of names.
     """
     return slice_for_mask(app.rel, slice_mask_by_rel_app(app))
+
+
+def ensure_slice_filled(slyce: Slice):
+    # breakpoint()
+    if slyce not in UNFILLED_SLICES:
+        return
+
+    from dyrel.relation import Record
+
+    for fact, sup in slyce.rel.facts.items():
+        if (bindings := slice_mask_match_fact(slyce.mask, fact)) is not None:
+            slyce.records[Record(bindings)] += sup
+
+    UNFILLED_SLICES.remove(slyce)
 
 
 def slice_mask_match_fact(mask: SliceMask, fact: Record) -> list | None:

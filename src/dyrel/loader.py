@@ -31,9 +31,6 @@ class SourceFile:
     state: SourceFileState
     facts: RelationFactSupport | None = None
 
-    # Do we need this smartness?
-    # queries = ExternalAttr(QUERIES_BY_FILE)
-
 
 class SourceFileState(enum.Enum):
     FAILED_TO_COMPILE = enum.auto()
@@ -90,7 +87,7 @@ def reload_dir(dir: Path):
     process_stale_queries()
 
 
-def reload_file(delta_facts: RelationFactSupport, path: Path):
+def reload_file(rel_deltas: RelationFactSupport, path: Path):
     """Reload the file given by 'path' and contribute to 'change'.
 
     Global data structures are updated eagerly. Changes in facts are netted in 'delta' and
@@ -124,11 +121,11 @@ def reload_file(delta_facts: RelationFactSupport, path: Path):
 
     # Process facts
     if source_file.facts:
-        for rel, support in source_file.facts.items():
-            delta_facts[rel].subtract(support)
+        for rel, counter in source_file.facts.items():
+            rel_deltas[rel].subtract(counter)
 
-    for rel, support in result.facts.items():
-        delta_facts[rel].update(support)
+    for rel, counter in result.facts.items():
+        rel_deltas[rel].update(counter)
 
     source_file.facts = result.facts
 
@@ -233,104 +230,3 @@ def register_fact(chain: RelAppLink):
         raise DyrelError("We cannot yet define rules, only ground facts")
 
     cur_file_facts[app.rel][Record(cast("Val", val).value for val in app.args)] += 1
-
-
-# @dataclass(eq=False, slots=True)
-# class SourceChange:
-#     delta_facts: RelationFactSupport
-#     new_queries: set[Query]
-
-#     def __init__(self):
-#         self.delta_facts = defaultdict(Counter)
-#         self.new_queries = set()
-
-#     def update(
-#         self,
-#         old_facts: RelationFactSupport | None,
-#         new_facts: RelationFactSupport,
-#         new_queries: set[Query],
-#     ):
-#         if old_facts:
-#             for rel in old_facts:
-#                 self.delta_facts[rel].subtract(old_facts[rel])
-
-#         for rel in new_facts:
-#             self.delta_facts[rel].update(new_facts[rel])
-
-#         self.new_queries.update(new_queries)
-
-#     def normalize(self):
-#         """Throw away all the net 0 entries from 'facts' counters."""
-#         to_del = []
-
-#         for rel, delta in self.delta_facts.items():
-#             for rec in [rec for rec, d in delta.items() if d == 0]:
-#                 del delta[rec]
-
-#             if not delta:
-#                 to_del.append(rel)
-
-#         for rel in to_del:
-#             del self.delta_facts[rel]
-
-#     def apply_delta_facts(self):
-#         for rel, delta in self.delta_facts.items():
-#             rel.records += delta
-
-
-# def apply_and_report_change(change: SourceChange):
-#     change.normalize()
-
-#     existed_queries_by_rel = util.group_by(
-#         {query for queries in QUERIES_BY_FILE.values() for query in queries}
-#         - change.new_queries,
-#         key=lambda query: query.rel_app.rel,
-#     )
-
-#     for rel, delta in change.delta_facts.items():
-#         if rel not in existed_queries_by_rel:
-#             continue
-
-#         added, removed = compute_added_removed_records(rel, delta)
-
-#         for query in existed_queries_by_rel[rel]:
-#             q_added = {rec for rec in added if query.rel_app.is_satisfied_by_record(rec)}
-#             q_removed = {
-#                 rec for rec in removed if query.rel_app.is_satisfied_by_record(rec)
-#             }
-
-#             if not q_added and not q_removed:
-#                 continue
-
-#             print(f'Query "{query.name}":')
-
-#             for rec in q_added:
-#                 print(f"  +{rec}")
-
-#             for rec in q_removed:
-#                 print(f"  -{rec}")
-
-#     change.apply_delta_facts()
-
-#     # Process the "new queries" separately: they need all the records, not just delta
-#     new_queries_by_rel = util.group_by(
-#         change.new_queries, key=lambda query: query.rel_app.rel
-#     )
-
-#     for rel, queries in new_queries_by_rel.items():
-#         for query in queries:
-#             print(f'New query "{query.name}":')
-
-#             for rec in rel.records:
-#                 if query.rel_app.is_satisfied_by_record(rec):
-#                     print(f"  {rec}")
-
-
-# def compute_added_removed_records(
-#     rel: Relation, delta: Counter[Record]
-# ) -> tuple[set[Record], set[Record]]:
-#     # `rec not in rel.records` implies that `delta[rec] > 0`
-#     added = {rec for rec in delta if rec not in rel.records}
-#     removed = {rec for rec in delta if delta[rec] == -rel.records[rec]}
-
-#     return added, removed

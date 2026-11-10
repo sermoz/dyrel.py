@@ -25,7 +25,7 @@ class Relation:
     slices: dict[SliceMask, Slice] = field(default_factory=dict, init=False)
 
     def __repr__(self):
-        return f"#{self.signature}"
+        return f"#<{self.signature}>"
 
 
 class Record(tuple):
@@ -84,7 +84,14 @@ def apply_delta_facts(rel_deltas: RelationFactSupport):
             if d_sup == 0:
                 continue
 
+            rel.facts[fact] += d_sup
+            if rel.facts[fact] == 0:
+                del rel.facts[fact]
+
             for slyce in rel.slices.values():
+                if slyce.is_unfilled:
+                    continue
+
                 bindings = slice_mask_match_fact(slyce.mask, fact)
                 if bindings is not None:
                     slice_delta_record(slyce, Record(bindings), d_sup)
