@@ -1,19 +1,27 @@
 from __future__ import annotations
-import itertools
 
 import enum
 import hashlib
 import traceback
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar, TypeAlias
+from typing import TYPE_CHECKING, ClassVar, TypeAlias, cast
 
-from dyrel.relation import Record, RelApp, Relation
-from dyrel import util
+from dyrel.exc import DyrelError
+from dyrel.query import Query, process_stale_queries
+from dyrel.relation import Record, RelApp, apply_delta_facts
+from dyrel.slice import slice_for_rel_app
+
+if TYPE_CHECKING:
+    from dyrel.dsl import RelAppLink, Val
+    from dyrel.query import QueryKey
+    from dyrel.relation import RelationFactSupport
+
 
 SOURCE_FILE_REGISTRY: dict[Path, SourceFile] = {}
-QUERIES_BY_FILE: dict[SourceFile, set[Query]] = {}
+QUERIES_BY_FILE: dict[SourceFile, dict[QueryKey, Query]] = {}
 
 
 @dataclass(eq=False, repr=False, slots=True)
@@ -21,10 +29,7 @@ class SourceFile:
     path: Path
     digest: bytes
     state: SourceFileState
-    facts: RecordSupportMap | None = None
-
-
-RecordSupportMap: TypeAlias = defaultdict[Relation, Counter[Record]]
+    facts: RelationFactSupport | None = None
 
 
 class SourceFileState(enum.Enum):
@@ -33,31 +38,60 @@ class SourceFileState(enum.Enum):
     OK = enum.auto()
 
 
-@dataclass(eq=True, frozen=True, slots=True)
-class Query:
+@dataclass(eq=False, repr=False, slots=True)
+class QueryDef:
+    """How queries come from source files."""
+
     name: str
     rel_app: RelApp
+    callback: Callable
+
+
+def query(chain: RelAppLink):
+    """Entry-point decorator to be used in Dyrel source files.
+
+    Example:
+        @query(r.person(v.Person).aunt("Jinny"))
+        def _jinny_nephews(appeared, Person):
+            if appeared:
+                print(f'{Person} is a nephew of Jinny')
+            else:
+                print(f'{Person} is no longer a nephew of Jinny')
+    """
+    goal = RelApp.from_chain(chain)
+
+    if len(goal.var_names) > len(set(goal.var_names)):
+        raise DyrelError("Duplicated var names in a goal")
+
+    def wrapper(callback):
+        if not isinstance(getattr(callback, "__name__", None), str):
+            raise DyrelError('Query handler callable has no "__name__"')
+
+        return QueryDef(
+            name=callback.__name__,
+            rel_app=goal,
+            callback=callback,
+        )
+
+    return wrapper
 
 
 def reload_dir(dir: Path):
     """(Re)load all the directory's *.py files"""
-    change = Change()
+    rel_deltas: RelationFactSupport = defaultdict(Counter)
 
     for path in dir.glob("*.py"):
-        reload_file(change, path)
+        reload_file(rel_deltas, path)
 
-    # change.apply_delta_facts()
-    apply_and_report_change(change)
-
-    total_support = sum(delta.total() for delta in change.delta_facts.values())
-    print(f'Dir "{dir}" reload: loaded {total_support} facts for {len(change.delta_facts)} relations')
+    apply_delta_facts(rel_deltas)
+    process_stale_queries()
 
 
-def reload_file(change: Change, path: Path):
+def reload_file(rel_deltas: RelationFactSupport, path: Path):
     """Reload the file given by 'path' and contribute to 'change'.
 
-    Global data structures are updated eagerly. Changes in records (added/removed) are
-    accumulated in 'change' and not updated here.
+    Global data structures are updated eagerly. Changes in facts are netted in 'delta' and
+    applied at the end of the reload transaction.
     """
     file_contents = path.read_bytes()
     digest = hashlib.blake2b(file_contents, digest_size=32).digest()
@@ -74,43 +108,79 @@ def reload_file(change: Change, path: Path):
         source_file = SOURCE_FILE_REGISTRY[path] = SourceFile(
             path=path,
             digest=digest,
-            state=SourceFileState.OK,  # just to init
+            state=result.state,
             facts=None,
         )
-
-    source_file.state = result.state
-    source_file.digest = digest
+    else:
+        source_file.state = result.state
+        source_file.digest = digest
 
     # Be sure not to remove the old facts if the file is broken.
     if not isinstance(result, LoadSuccess):
         return
 
-    change.update(
-        old_facts=source_file.facts,
-        new_facts=result.facts,
-        new_queries=result.queries - QUERIES_BY_FILE.get(source_file, set())
-    )
+    # Process facts
+    if source_file.facts:
+        for rel, counter in source_file.facts.items():
+            rel_deltas[rel].subtract(counter)
 
-    if result.queries:
-        QUERIES_BY_FILE[source_file] = result.queries
-    else:
-        QUERIES_BY_FILE.pop(source_file, None)
+    for rel, counter in result.facts.items():
+        rel_deltas[rel].update(counter)
 
     source_file.facts = result.facts
+
+    # Process queries
+    reconcile_queries(source_file, result.query_defs)
+
+
+def reconcile_queries(source_file: SourceFile, query_defs: list[QueryDef]):
+    if not (source_file in QUERIES_BY_FILE or query_defs):
+        # Had no queries, still has no queries => nothing to do
+        return
+
+    query_by_key = QUERIES_BY_FILE.setdefault(source_file, {})
+    unseen_queries = set(query_by_key.values())
+
+    for qdef in query_defs:
+        slyce = slice_for_rel_app(qdef.rel_app)
+
+        if (qdef.name, slyce) in query_by_key:
+            # Update existing query with the new callback and other info
+            x_query = query_by_key[qdef.name, slyce]
+
+            x_query.var_names = qdef.rel_app.var_names
+            x_query.callback = qdef.callback
+
+            unseen_queries.remove(x_query)
+        else:
+            # Create new Query instance
+            query = query_by_key[qdef.name, slyce] = Query(
+                name=qdef.name,
+                slyce=slyce,
+                var_names=qdef.rel_app.var_names,
+                callback=qdef.callback,
+            )
+            query.invalidate()
+
+    for query in unseen_queries:
+        query.unlink()
+        del query_by_key[query.key]
+
+    if not query_by_key:
+        del QUERIES_BY_FILE[source_file]
 
 
 @dataclass(eq=False, frozen=True, slots=True)
 class LoadSuccess:
     state: ClassVar = SourceFileState.OK
 
-    facts: RecordSupportMap
-    queries: set[Query]
+    facts: RelationFactSupport
+    query_defs: list[QueryDef]
 
 
 @dataclass(eq=False, frozen=True, slots=True)
 class LoadFailure:
-    # On load failure, 'facts' of a module don't exist
-    facts: ClassVar = None
+    facts: ClassVar = None  # On load failure, 'facts' of a file don't exist
 
     state: SourceFileState
 
@@ -118,118 +188,45 @@ class LoadFailure:
 LoadResult: TypeAlias = LoadSuccess | LoadFailure
 
 
-# Global variable that are non-None only during a source file load. At all other times,
-# they both are None.
-cur_file_facts: RecordSupportMap | None = None
-cur_file_queries: set[Query] | None = None
+# Not a None only during a source file load.
+cur_file_facts: RelationFactSupport | None = None
 
 
 def load_file(path: Path, file_contents: bytes) -> LoadResult:
     try:
-        code_obj = compile(file_contents, filename=f"dyrel::{path}", mode="exec")
+        code_obj = compile(file_contents, filename=f"dyrel:{path}", mode="exec")
     except Exception:
         traceback.print_exc()
         return LoadFailure(SourceFileState.FAILED_TO_COMPILE)
 
-    global cur_file_facts, cur_file_queries
+    global cur_file_facts
 
+    namespace = {}
     cur_file_facts = defaultdict(Counter)
-    cur_file_queries = set()
 
     try:
-        exec(code_obj)
+        exec(code_obj, namespace)
     except Exception:
         traceback.print_exc()
         return LoadFailure(SourceFileState.FAILED_TO_RUN)
     else:
-        return LoadSuccess(facts=cur_file_facts, queries=cur_file_queries)
+        return LoadSuccess(
+            facts=cur_file_facts,
+            query_defs=[
+                qdef for qdef in namespace.values() if isinstance(qdef, QueryDef)
+            ],
+        )
     finally:
         cur_file_facts = None
-        cur_file_queries = None
 
 
-@dataclass(eq=False, slots=True)
-class Change:
-    delta_facts: RecordSupportMap = field(default_factory=lambda: defaultdict(Counter), init=False)
-    new_queries: set[Query] = field(default_factory=set, init=False)
+def register_fact(chain: RelAppLink):
+    if cur_file_facts is None:
+        raise DyrelError('"r += ..." in a context where it\'s not expected')
 
-    def update(self, old_facts: RecordSupportMap | None, new_facts: RecordSupportMap, new_queries: set[Query]):
-        if old_facts:
-            for rel in old_facts:
-                self.delta_facts[rel].subtract(old_facts[rel])
+    app = RelApp.from_chain(chain)
 
-        for rel in new_facts:
-            self.delta_facts[rel].update(new_facts[rel])
+    if not app.is_ground:
+        raise DyrelError("We cannot yet define rules, only ground facts")
 
-        self.new_queries.update(new_queries)
-
-    def normalize(self):
-        """Throw away all the net 0 entries from 'facts' counters."""
-        to_del = []
-
-        for rel, delta in self.delta_facts.items():
-            for rec in [rec for rec, d in delta.items() if d == 0]:
-                del delta[rec]
-
-            if not delta:
-                to_del.append(rel)
-
-        for rel in to_del:
-            del self.delta_facts[rel]
-
-    def apply_delta_facts(self):
-        for rel, delta in self.delta_facts.items():
-            rel.records += delta
-
-
-def apply_and_report_change(change: Change):
-    change.normalize()
-
-    existed_queries_by_rel = util.group_by(
-        {query for queries in QUERIES_BY_FILE.values() for query in queries} - change.new_queries,
-        key=lambda query: query.rel_app.rel
-    )
-
-    for rel, delta in change.delta_facts.items():
-        if rel not in existed_queries_by_rel:
-            continue
-
-        added, removed = compute_added_removed_records(rel, delta)
-
-        for query in existed_queries_by_rel[rel]:
-            q_added = {rec for rec in added if query.rel_app.is_satisfied_by_record(rec)}
-            q_removed = {rec for rec in removed if query.rel_app.is_satisfied_by_record(rec)}
-
-            if not q_added and not q_removed:
-                continue
-
-            print(f'Query "{query.name}":')
-
-            for rec in q_added:
-                print(f'  +{rec}')
-
-            for rec in q_removed:
-                print(f'  -{rec}')
-
-    change.apply_delta_facts()
-
-    # Process the "new queries" separately: they need all the records, not just delta
-    new_queries_by_rel = util.group_by(
-        change.new_queries, key=lambda query: query.rel_app.rel
-    )
-
-    for rel, queries in new_queries_by_rel.items():
-        for query in queries:
-            print(f'New query "{query.name}":')
-
-            for rec in rel.records:
-                if query.rel_app.is_satisfied_by_record(rec):
-                    print(f'  {rec}')
-
-
-def compute_added_removed_records(rel: Relation, delta: Counter[Record]) -> tuple[set[Record], set[Record]]:
-    # `rec not in rel.records` implies that `delta[rec] > 0`
-    added = {rec for rec in delta if rec not in rel.records}
-    removed = {rec for rec in delta if delta[rec] == -rel.records[rec]}
-
-    return added, removed
+    cur_file_facts[app.rel][Record(cast("Val", val).value for val in app.args)] += 1
