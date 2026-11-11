@@ -21,6 +21,7 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "ipython",
+    "pygls",
     "pytest",
     "ruff",
     "ty",

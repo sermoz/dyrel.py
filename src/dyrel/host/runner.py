@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,6 +11,7 @@ from dyrel import update
 from dyrel.load import reload_dir, reload_file
 
 from .inotify import Inotify, Mask
+from .lsp_server import run_lsp_server
 
 if TYPE_CHECKING:
     from dyrel.relation import RelationFactSupport
@@ -93,11 +95,14 @@ async def run():
     async with asyncio.TaskGroup() as group:
         group.create_task(watch_source_files(debouncer))
         group.create_task(reload_source_files(debouncer))
+        group.create_task(run_lsp_server())
 
         print("*** Listening for source file changes..")
 
 
 def main():
+    logging.basicConfig(level=logging.INFO, force=False)
+
     reload_dir(Path("sample"))
 
     # return
