@@ -6,14 +6,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
-from dyrel.loader import reload_dir, reload_file
-from dyrel.query import process_stale_queries
-from dyrel.relation import apply_delta_facts
+from dyrel import update
+from dyrel.load import reload_dir, reload_file
 
 from .inotify import Inotify, Mask
 
 if TYPE_CHECKING:
-    from dyrel.loader import RelationFactSupport
+    from dyrel.relation import RelationFactSupport
 
 
 @dataclass(eq=False, repr=False, slots=True)
@@ -83,8 +82,8 @@ async def reload_source_files(debouncer: DirtyFileDebouncer):
             # print(f'Reloading file: "{path}"')
             reload_file(rel_deltas, path)
 
-        apply_delta_facts(rel_deltas)
-        process_stale_queries()
+        update.apply_delta_facts(rel_deltas)
+        update.process_stale_queries()
         print("***")
 
 
@@ -103,21 +102,3 @@ def main():
 
     # return
     asyncio.run(run())
-
-
-# def main():
-#     source_files = load_dir("sample")
-
-#     print(f"Loaded {len(source_files)} files:")
-
-#     for path in source_files:
-#         print(path)
-
-#     import IPython
-
-#     from dyrel.relation import relation_registry
-
-#     IPython.embed(colors="neutral", user_ns={
-#         "source_files": source_files,
-#         "reg": relation_registry
-#     })

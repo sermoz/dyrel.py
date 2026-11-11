@@ -9,15 +9,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, TypeAlias, cast
 
+from dyrel import update
 from dyrel.exc import DyrelError
-from dyrel.query import Query, process_stale_queries
-from dyrel.relation import Record, RelApp, apply_delta_facts
-from dyrel.slice import slice_for_rel_app
+from dyrel.relation import Query, Record, RelApp, Slice
 
 if TYPE_CHECKING:
     from dyrel.dsl import RelAppLink, Val
-    from dyrel.query import QueryKey
-    from dyrel.relation import RelationFactSupport
+    from dyrel.relation import QueryKey, RelationFactSupport
 
 
 SOURCE_FILE_REGISTRY: dict[Path, SourceFile] = {}
@@ -83,8 +81,8 @@ def reload_dir(dir: Path):
     for path in dir.glob("*.py"):
         reload_file(rel_deltas, path)
 
-    apply_delta_facts(rel_deltas)
-    process_stale_queries()
+    update.apply_delta_facts(rel_deltas)
+    update.process_stale_queries()
 
 
 def reload_file(rel_deltas: RelationFactSupport, path: Path):
@@ -142,7 +140,7 @@ def reconcile_queries(source_file: SourceFile, query_defs: list[QueryDef]):
     unseen_queries = set(query_by_key.values())
 
     for qdef in query_defs:
-        slyce = slice_for_rel_app(qdef.rel_app)
+        slyce = Slice.for_rel_app(qdef.rel_app)
 
         if (qdef.name, slyce) in query_by_key:
             # Update existing query with the new callback and other info

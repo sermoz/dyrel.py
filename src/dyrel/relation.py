@@ -1,15 +1,22 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, TypeAlias
 
+from typing_extensions import Sentinel
+
 from dyrel.dsl import Val, Var, chain_args, chain_arity, chain_signature
-from dyrel.slice import slice_delta_record, slice_mask_match_fact
 
 if TYPE_CHECKING:
     from dyrel.dsl import RelAppLink
-    from dyrel.slice import Slice, SliceMask
+
+
+class Record(tuple):
+    """Record is either a fact (in a relation) or just a record (in a slice)."""
+
+    __slots__ = ()
 
 
 RELATION_REGISTRY: dict[str, Relation] = {}
@@ -21,15 +28,36 @@ class Relation:
     arity: int
     # We only support facts for now, i.e. rules without bodies. Every fact can be defined
     # more than once, generally speaking (support count).
-    facts: Counter[Record] = field(default_factory=Counter, init=False)
-    slices: dict[SliceMask, Slice] = field(default_factory=dict, init=False)
+    facts: Counter[Record]
+    slices: dict[SliceMask, Slice]
+
+    def __init__(self, signature: str, arity: int):
+        self.signature = signature
+        self.arity = arity
+        self.facts = Counter()
+        self.slices = {}
 
     def __repr__(self):
         return f"#<{self.signature}>"
 
+    @staticmethod
+    def by_chain(chain: RelAppLink) -> Relation:
+        signature = chain_signature(chain)
 
-class Record(tuple):
-    __slots__ = ()
+        if (relation := RELATION_REGISTRY.get(signature)) is None:
+            relation = RELATION_REGISTRY[signature] = Relation(
+                signature, chain_arity(chain)
+            )
+
+        return relation
+
+    def slice_for_mask(self, mask: SliceMask) -> Slice:
+        """Intern the slice and return it."""
+        if (slyce := self.slices.get(mask)) is None:
+            slyce = self.slices[mask] = Slice(self, mask)
+            UNFILLED_SLICES.add(slyce)
+
+        return slyce
 
 
 @dataclass(eq=True, repr=False, slots=True)
@@ -39,10 +67,7 @@ class RelApp:
 
     @classmethod
     def from_chain(cls, chain: RelAppLink) -> RelApp:
-        return RelApp(
-            rel=relation_for_chain(chain),
-            args=chain_args(chain),
-        )
+        return RelApp(rel=Relation.by_chain(chain), args=chain_args(chain))
 
     @property
     def is_ground(self):
@@ -52,46 +77,188 @@ class RelApp:
     def var_names(self) -> tuple[str, ...]:
         return tuple(var.name for var in self.args if isinstance(var, Var))
 
-    def is_satisfied_by_record(self, rec: tuple) -> bool:
-        assert len(self.args) == len(rec), "Record length does not match"
 
-        return all(arg.matches(v) for arg, v in zip(self.args, rec))
-
-
-def relation_for_chain(chain: RelAppLink) -> Relation:
-    signature = chain_signature(chain)
-    relation = RELATION_REGISTRY.get(signature)
-
-    if relation is None:
-        relation = RELATION_REGISTRY[signature] = Relation(
-            signature=signature,
-            arity=chain_arity(chain),
-        )
-
-    return relation
-
-
+# This is how we represent fact support counts for multiple relations, and also the delta
+# of it.
 RelationFactSupport: TypeAlias = defaultdict[Relation, Counter[Record]]
 
 
-def apply_delta_facts(rel_deltas: RelationFactSupport):
-    """Update all the consumers (slice) to reflect the changed producers (facts).
+# When a slice is created, it's put here. Then it's fully initialized on first use and
+# then kept up-to-date.
+UNFILLED_SLICES: set[Slice] = set()
 
-    The deltas in 'rel_deltas' may come non-normalized (has 0s).
-    """
-    for rel, delta in rel_deltas.items():
-        for fact, d_sup in delta.items():
-            if d_sup == 0:
-                continue
 
-            rel.facts[fact] += d_sup
-            if rel.facts[fact] == 0:
-                del rel.facts[fact]
+@dataclass(eq=False, repr=False, slots=True)
+class Slice:
+    rel: Relation
+    mask: SliceMask
+    arity: int  # number of 'FREE_ARG's in 'mask'
+    records: Counter[Record]  # None means not yet initialized
+    latest_version: Version | None
+    valid_consumers: set[Query]  # currently only Queries can depend on slices
+    consumers: set[Query]  # temp solution, we really need GC
 
-            for slyce in rel.slices.values():
-                if slyce.is_unfilled:
-                    continue
+    def __init__(self, rel: Relation, mask: SliceMask):
+        self.rel = rel
+        self.mask = mask
+        self.arity = mask.arity
+        self.records = Counter()
+        self.latest_version = None
+        self.valid_consumers = set()
+        self.consumers = set()
 
-                bindings = slice_mask_match_fact(slyce.mask, fact)
-                if bindings is not None:
-                    slice_delta_record(slyce, Record(bindings), d_sup)
+    @staticmethod
+    def for_rel_app(app: RelApp) -> Slice:
+        """Return a Slice designated by 'app'.
+
+        Ignore var duplicates: all vars are treated as wildcards, independent of names.
+        """
+        return app.rel.slice_for_mask(SliceMask.by_rel_app(app))
+
+    @property
+    def is_unfilled(self) -> bool:
+        return self in UNFILLED_SLICES
+
+    def consume_by(self, query: Query):
+        self.consumers.add(query)
+        self.valid_consumers.add(query)
+
+    def unconsume_by(self, query: Query):
+        self.consumers.remove(query)
+        self.valid_consumers.discard(query)
+
+        if not self.consumers:
+            self.latest_version = None
+
+    def ensure_filled(self):
+        if self not in UNFILLED_SLICES:
+            return
+
+        for fact, sup in self.rel.facts.items():
+            if (bindings := self.mask.match_fact(fact)) is not None:
+                self.records[Record(bindings)] += sup
+
+        UNFILLED_SLICES.remove(self)
+
+    def get_current_version(self: Slice) -> Version:
+        if self.latest_version is None:
+            self.latest_version = Version()
+            return self.latest_version
+
+        if self.latest_version.is_clean:
+            return self.latest_version
+
+        new_latest = Version()
+        self.latest_version.next = new_latest
+        self.latest_version = new_latest
+
+        return self.latest_version
+
+
+FREE_ARG = Sentinel("*")
+
+
+class SliceMask(tuple):
+    """Tuple of unwrapped values or FREE_ARGS"""
+
+    __slots__ = ()
+
+    @property
+    def arity(self) -> int:
+        return sum(1 for item in self if item is FREE_ARG)
+
+    @staticmethod
+    def by_rel_app(rel_app: RelApp) -> SliceMask:
+        """Treat all the variables in 'rel_app' as wildcards. Don't check for dups."""
+        return SliceMask(
+            FREE_ARG if isinstance(arg, Var) else arg.value for arg in rel_app.args
+        )
+
+    def match_fact(self, fact: Record) -> list | None:
+        """Match this mask with the given fact.
+
+        :return: a list of bindings corresponding to the free args in self, in order.
+        """
+        assert len(self) == len(fact), "Arity mismatch"
+
+        bindings = []
+
+        for m, f in zip(self, fact):
+            if m is FREE_ARG:
+                bindings.append(f)
+            elif m == f:
+                pass
+            else:
+                return None
+
+        return bindings
+
+
+@dataclass(eq=False, repr=False, slots=True)
+class Version:
+    next: Version | None
+    came: set[Record]
+    gone: set[Record]
+
+    def __init__(self):
+        self.next = None
+        self.came = set()
+        self.gone = set()
+
+    @property
+    def is_clean(self) -> bool:
+        return not self.came and not self.gone
+
+    def record_came(self, rec: Record):
+        if rec in self.gone:
+            self.gone.remove(rec)
+        else:
+            assert rec not in self.came, "Cannot add same record twice"
+            self.came.add(rec)
+
+    def record_gone(self, rec: Record):
+        if rec in self.came:
+            self.came.remove(rec)
+        else:
+            assert rec not in self.gone, "Cannot remove same record twice"
+            self.gone.add(rec)
+
+    def ensure_unchained(self: Version):
+        if self.next is None:
+            return
+
+        self.next.ensure_unchained()
+
+        # Between two consecutive versions there can be items that cancel each other out.
+        cancel_out = (self.came & self.next.gone) | (self.gone & self.next.came)
+
+        self.came = (self.came | self.next.came) - cancel_out
+        self.gone = (self.gone | self.next.gone) - cancel_out
+
+        self.next = None
+
+
+STALE_QUERIES = set()
+
+# Per a single source file, a query name and the target slice should be unique.
+QueryKey: TypeAlias = tuple[str, Slice]
+
+
+@dataclass(eq=False, repr=False, slots=True)
+class Query:
+    name: str
+    slyce: Slice
+    var_names: tuple[str, ...]
+    version: Version | None = field(default=None, init=False)
+    callback: Callable
+
+    @property
+    def key(self) -> QueryKey:
+        return self.name, self.slyce
+
+    def invalidate(self):
+        STALE_QUERIES.add(self)
+
+    def unlink(self):
+        STALE_QUERIES.discard(self)
+        self.slyce.unconsume_by(self)

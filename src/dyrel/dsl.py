@@ -15,7 +15,7 @@ class RObject:
         return RelAppLink(prev=self, name=name)
 
     def __iadd__(self, chain: RelAppLink):
-        from dyrel.loader import register_fact
+        from dyrel.load import register_fact
 
         register_fact(chain)
         return self
