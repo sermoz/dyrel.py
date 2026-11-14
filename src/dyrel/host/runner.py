@@ -102,8 +102,6 @@ async def run():
 
 def main():
     logging.basicConfig(level=logging.INFO, force=False)
-
     reload_dir(Path("sample"))
-
     # return
     asyncio.run(run())

@@ -1,0 +1,18 @@
+{
+  "name": "dyrel-lsp-client",
+  "version": "0.0.1",
+  "engines": { "vscode": "^1.80.0" },
+  "main": "./extension.js",
+  "activationEvents": ["onLanguage:python"],
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "dyrel.restart",
+        "title": "Dyrel LSP: Restart"
+      }
+    ]
+  }
+}

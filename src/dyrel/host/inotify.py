@@ -80,7 +80,7 @@ class Inotify:
 
 
 class Mask(enum.IntFlag):
-    # Both 
+    # Both
     ACCESS = 0x1
     MODIFY = 0x2
     ATTRIB = 0x4
@@ -122,7 +122,7 @@ class Event:
     name: str
 
 
-EVENT_FORMAT = Struct('iIII')
+EVENT_FORMAT = Struct("iIII")
 
 
 def unpack_events(data: bytes) -> Iterator[Event]:
@@ -133,7 +133,7 @@ def unpack_events(data: bytes) -> Iterator[Event]:
         wd, mask, cookie, namesize = EVENT_FORMAT.unpack_from(data, pos)
         pos += EVENT_FORMAT.size
 
-        end = data.index(b'\x00', pos, pos + namesize)
+        end = data.index(b"\x00", pos, pos + namesize)
         name = os.fsdecode(data[pos:end])
         pos += namesize
 
