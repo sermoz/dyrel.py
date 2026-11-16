@@ -32,7 +32,6 @@ def make_lsp_server() -> LanguageServer:
 
     @lsp_server.feature(lsp.TEXT_DOCUMENT_HOVER)
     def hover(ls: LanguageServer, params: lsp.HoverParams) -> lsp.Hover:
-        breakpoint()
         return lsp.Hover(
             contents=lsp.MarkupContent(
                 kind=lsp.MarkupKind.PlainText,
