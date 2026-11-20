@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import logging
+import logging.config
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -12,7 +12,8 @@ from dyrel.host.inotify import Inotify, Mask
 from dyrel.host.load import reload_file, reload_root_dir
 from dyrel.util import BatchDebouncer
 
-from .lsp_server import run_lsp_server
+logger = logging.getLogger("dyrel")
+
 
 if TYPE_CHECKING:
     from dyrel.relation import RelationFactSupport
@@ -45,17 +46,43 @@ async def co_main():
     async with asyncio.TaskGroup() as group:
         group.create_task(watch_source_files(debouncer))
         group.create_task(reload_source_files(debouncer))
-        group.create_task(run_lsp_server())
+        # group.create_task(run_lsp_server())
 
-        print("*** Listening for source file changes..")
+        logger.info("Listening for source file changes..")
+
+
+LOGGING_CONFIG = {
+    "version": 1,
+    "loggers": {
+        "dyrel": {
+            "level": "INFO",
+            "handlers": ["console"],
+        },
+        "dyrel.lsp": {
+            "level": "DEBUG",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "level": "DEBUG",
+            "formatter": "default",
+        },
+    },
+    "formatters": {
+        "default": {
+            "format": "%(asctime)s %(levelname)s %(filename)s:%(lineno)d: %(message)s"
+        }
+    },
+}
 
 
 def main():
-    logging.basicConfig(level=logging.INFO, force=False)
+    logging.config.dictConfig(LOGGING_CONFIG)
     source.ROOT_DIR = Path("sample")
 
     reload_root_dir()
-    # return
+
     try:
         asyncio.run(co_main())
     except KeyboardInterrupt:
