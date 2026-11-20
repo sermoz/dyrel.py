@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.scripts]
-dyrel-host = "dyrel.host.runner:main"
+dyrel-host = "dyrel.host.run:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -57,6 +57,9 @@ ignore = [
     "TC003",   # Move standard library import {} into a type-checking block
 ]
 extend-safe-fixes = ["TC"]
+
+[tool.ty.environment]
+root = ["src"]
 
 [tool.ty.src]
 exclude = ["./sample/**"]
