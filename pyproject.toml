@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.scripts]
-run = "dyrel.host.runner:main"
+dyrel-host = "dyrel.host.run:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -21,6 +21,8 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "ipython",
+    "pdbpp>=0.12.1",
+    "pygls",
     "pytest",
     "ruff",
     "ty",
@@ -55,6 +57,12 @@ ignore = [
     "TC003",   # Move standard library import {} into a type-checking block
 ]
 extend-safe-fixes = ["TC"]
+
+[tool.ty.environment]
+root = ["src"]
+
+[tool.ty.src]
+exclude = ["./sample/**"]
 
 [tool.hatch.build.targets.sdist]
 include = [

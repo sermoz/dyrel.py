@@ -7,8 +7,12 @@ import os
 from collections.abc import Iterator
 from dataclasses import dataclass
 from struct import Struct
+from typing import TYPE_CHECKING, Self
 
 libc = ctypes.CDLL("libc.so.6", use_errno=True)
+
+if TYPE_CHECKING:
+    from _typeshed import StrPath
 
 
 def _check_error(result, func, arguments):
@@ -44,7 +48,7 @@ class Inotify:
 
         asyncio.get_running_loop().add_reader(self.fd, self._on_readable)
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -59,7 +63,7 @@ class Inotify:
 
         return False
 
-    def add_watch(self, path: str, mask: Mask):
+    def add_watch(self, path: StrPath, mask: Mask):
         wd: int = libc.inotify_add_watch(self.fd, os.fsencode(path), mask)
         self.watches.append(wd)
 
@@ -80,7 +84,7 @@ class Inotify:
 
 
 class Mask(enum.IntFlag):
-    # Both 
+    # Both
     ACCESS = 0x1
     MODIFY = 0x2
     ATTRIB = 0x4
@@ -122,7 +126,7 @@ class Event:
     name: str
 
 
-EVENT_FORMAT = Struct('iIII')
+EVENT_FORMAT = Struct("iIII")
 
 
 def unpack_events(data: bytes) -> Iterator[Event]:
@@ -133,7 +137,7 @@ def unpack_events(data: bytes) -> Iterator[Event]:
         wd, mask, cookie, namesize = EVENT_FORMAT.unpack_from(data, pos)
         pos += EVENT_FORMAT.size
 
-        end = data.index(b'\x00', pos, pos + namesize)
+        end = data.index(b"\x00", pos, pos + namesize)
         name = os.fsdecode(data[pos:end])
         pos += namesize
 

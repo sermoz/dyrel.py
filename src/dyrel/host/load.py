@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import enum
 import hashlib
 import traceback
 from collections import Counter, defaultdict
@@ -11,29 +10,13 @@ from typing import TYPE_CHECKING, ClassVar, TypeAlias, cast
 
 from dyrel import update
 from dyrel.exc import DyrelError
+from dyrel.host import source
+from dyrel.host.source import FILE_BY_PATH, QUERIES_BY_FILE, SourceFile, SourceFileState
 from dyrel.relation import Query, Record, RelApp, Slice
 
 if TYPE_CHECKING:
     from dyrel.dsl import RelAppLink, Val
-    from dyrel.relation import QueryKey, RelationFactSupport
-
-
-SOURCE_FILE_REGISTRY: dict[Path, SourceFile] = {}
-QUERIES_BY_FILE: dict[SourceFile, dict[QueryKey, Query]] = {}
-
-
-@dataclass(eq=False, repr=False, slots=True)
-class SourceFile:
-    path: Path
-    digest: bytes
-    state: SourceFileState
-    facts: RelationFactSupport | None = None
-
-
-class SourceFileState(enum.Enum):
-    FAILED_TO_COMPILE = enum.auto()
-    FAILED_TO_RUN = enum.auto()
-    OK = enum.auto()
+    from dyrel.relation import RelationFactSupport
 
 
 @dataclass(eq=False, repr=False, slots=True)
@@ -74,11 +57,11 @@ def query(chain: RelAppLink):
     return wrapper
 
 
-def reload_dir(dir: Path):
-    """(Re)load all the directory's *.py files"""
+def reload_root_dir():
+    """(Re)load all the root directory's *.py files"""
     rel_deltas: RelationFactSupport = defaultdict(Counter)
 
-    for path in dir.glob("*.py"):
+    for path in source.ROOT_DIR.glob("*.py"):
         reload_file(rel_deltas, path)
 
     update.apply_delta_facts(rel_deltas)
@@ -88,22 +71,22 @@ def reload_dir(dir: Path):
 def reload_file(rel_deltas: RelationFactSupport, path: Path):
     """Reload the file given by 'path' and contribute to 'change'.
 
-    Global data structures are updated eagerly. Changes in facts are netted in 'delta' and
-    applied at the end of the reload transaction.
+    Global data structures are updated eagerly. Changes in facts are netted in
+    'rel_deltas' and applied at the end of the reload transaction.
     """
     file_contents = path.read_bytes()
     digest = hashlib.blake2b(file_contents, digest_size=32).digest()
 
-    source_file = SOURCE_FILE_REGISTRY.get(path)
+    source_file = FILE_BY_PATH.get(path)
 
-    # Did the file changed?
+    # Did the file change?
     if source_file is not None and source_file.digest == digest:
         return
 
     result = load_file(path, file_contents)
 
     if source_file is None:
-        source_file = SOURCE_FILE_REGISTRY[path] = SourceFile(
+        source_file = FILE_BY_PATH[path] = SourceFile(
             path=path,
             digest=digest,
             state=result.state,
