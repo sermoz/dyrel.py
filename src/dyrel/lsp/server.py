@@ -15,51 +15,69 @@ async def run_lsp_server():
 
 async def serve_lsp_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
 
-    content_length = 0
-    logger = logger or logging.getLogger(__name__)
+    while True:
+        headers = await read_headers(reader)
 
-    while not stop_event.is_set():
-        # Read a header line
-        header = await reader.readline()
-        if not header:
+        try:
+            content_length = int(headers[b"Content-Length"])
+        except Exception:
+            logger.error(
+                "Invalid 'Content-Length' header: '%s'",
+                headers.get(b"Content-Length", "(missing)"),
+            )
+            raise Stop
+
+        try:
+            body = await reader.readexactly(content_length)
+        except asyncio.IncompleteReadError:
+            logger.debug("Could not read the whole message from the client, quitting")
+            raise Stop
+
+        # try:
+        #     message = json.loads(body, object_hook=protocol.structure_message)
+        #     protocol.handle_message(message)
+        # except Exception as exc:
+        #     logger.exception("Unable to handle message")
+        #     if error_handler:
+        #         error_handler(exc, JsonRpcException)
+        # finally:
+        #     # Reset
+        #     content_length = 0
+
+
+RE_HEADER = re.compile(rb"([^:]+?): (.+)\r\n")
+
+
+async def read_headers(reader: asyncio.StreamReader) -> dict[bytes, bytes]:
+    headers = {}
+
+    while True:
+        line = await reader.readline()
+
+        if not line.endswith(b"\n"):
+            # Client disconnected, possibly mid-header
+            raise Stop
+
+        if line == b"\r\n":
             break
 
-        # Extract content length if possible
-        if not content_length:
-            match = CONTENT_LENGTH_PATTERN.fullmatch(header)
-            if match:
-                content_length = int(match.group(1))
-                logger.debug("Content length: %s", content_length)
+        mres = re.fullmatch(RE_HEADER, line)
 
-        # Check if all headers have been read (as indicated by an empty line \r\n)
-        if content_length and not header.strip():
-            # Read body
-            body = await reader.readexactly(content_length)
-            if not body:
-                break
+        if mres is None:
+            logger.error("Failed to parse LSP client header: '%s'", line)
+            raise Stop
 
-            try:
-                message = json.loads(body, object_hook=protocol.structure_message)
-                protocol.handle_message(message)
-            except Exception as exc:
-                logger.exception("Unable to handle message")
-                if error_handler:
-                    error_handler(exc, JsonRpcException)
-            finally:
-                # Reset
-                content_length = 0
+        header, value = mres.groups()
+        headers[header] = value
+
+    return headers
 
 
-CONTENT_LENGTH_PATTERN = re.compile(rb"^Content-Length: (\d+)\r\n$")
+class Stop(Exception):
+    pass
 
 
-async def read_headers(reader: asyncio.StreamReader):
-    line = await reader.readline()
-    if not line:
-        raise ClientDisconnect
-
-    if not line.endswith(b"\r\n"):
-        raise ClientDisconnect
+# class
 
 
 # @lsp_server.feature(lsp.TEXT_DOCUMENT_HOVER)

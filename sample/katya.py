@@ -19,7 +19,7 @@ from dyrel import query, r, v
 
 
 @query(r.person("tanya").parent_of(v.child))
-def _tanya_childre(added, child):
+def _tanya_children_(added, child):
     print(f'{"+" if added else "-"} child of Tanya: "{child}"')
 
 

@@ -31,13 +31,16 @@ async def reload_source_files(debouncer: BatchDebouncer):
     while True:
         dirty_files: set[Path] = await debouncer.get_batch()
 
+        logger.info("Detected changes in %d file(s), reloading...", len(dirty_files))
+
         rel_deltas: RelationFactSupport = defaultdict(Counter)
         for path in dirty_files:
             reload_file(rel_deltas, path)
 
         update.apply_delta_facts(rel_deltas)
         update.process_stale_queries()
-        print("***")
+
+        logger.info("Done reloading")
 
 
 async def co_main():
