@@ -10,6 +10,7 @@ from dyrel import update
 from dyrel.host import source
 from dyrel.host.inotify import Inotify, Mask
 from dyrel.host.load import reload_file, reload_root_dir
+from dyrel.lsp.serve import run_lsp_server
 from dyrel.util import BatchDebouncer
 
 logger = logging.getLogger("dyrel")
@@ -49,7 +50,7 @@ async def co_main():
     async with asyncio.TaskGroup() as group:
         group.create_task(watch_source_files(debouncer))
         group.create_task(reload_source_files(debouncer))
-        # group.create_task(run_lsp_server())
+        group.create_task(run_lsp_server())
 
         logger.info("Listening for source file changes..")
 
